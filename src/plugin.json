@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/grafana/grafana/master/docs/sources/developers/plugins/plugin.schema.json",
+  "type": "datasource",
+  "name": "Google Cloud Trace",
+  "category": "tracing",
+  "id": "googlecloud-trace-datasource",
+  "metrics": true,
+  "backend": true,
+  "tracing": true,
+  "executable": "gpx_gcp-tracing",
+  "info": {
+    "description": "",
+    "author": {
+      "name": "false",
+      "url": ""
+    },
+    "keywords": [
+      "gcp"
+    ],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "links": [
+      {
+        "name": "Website",
+        "url": "https://github.com/observiq/googlecloud-trace-datasource"
+      },
+      {
+        "name": "License",
+        "url": "https://github.com/observiq/googlecloud-trace-datasource/blob/main/LICENSE"
+      }
+    ],
+    "screenshots": [],
+    "version": "%VERSION%",
+    "updated": "%TODAY%"
+  },
+  "dependencies": {
+    "grafanaDependency": ">=8.1.0",
+    "plugins": []
+  }
+}
