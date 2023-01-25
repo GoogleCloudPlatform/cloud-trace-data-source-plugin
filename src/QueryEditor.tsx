@@ -1,10 +1,10 @@
-import React, { KeyboardEvent, useEffect, useState } from 'react';
+import React, { KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { QueryEditorProps, SelectableValue } from '@grafana/data';
-import { InlineField, InlineFieldRow, Select, TextArea } from '@grafana/ui';
+import { InlineField, InlineFieldRow, LinkButton, Select, TextArea, Tooltip } from '@grafana/ui';
 import { DataSource } from './datasource';
-import { DataSourceOptionsExt, defaultQuery, Query } from './types';
+import { CloudTraceOptions, defaultQuery, Query } from './types';
 
-type Props = QueryEditorProps<DataSource, Query, DataSourceOptionsExt>;
+type Props = QueryEditorProps<DataSource, Query, CloudTraceOptions>;
 
 /**
  * This is basically copied from {MQLQueryEditor} from the cloud-monitoring data source
@@ -35,6 +35,74 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
   }
   if (query.queryText == null) {
     query.queryText = defaultQuery.queryText;
+  }
+
+  /**
+   * Keep an up-to-date URI that links to the equivalent query in the GCP console
+   */
+  const gcpConsoleURI = useMemo<string | undefined>(() => {
+    const timeRangeParam = range !== undefined ?
+      `&start=${range?.from?.valueOf()}&end=${range?.to?.valueOf()}`
+      : '';
+    const projectParam = query.projectId !== undefined ?
+      `&project=${query.projectId}`
+      : '';
+    const filterParam = query.queryText !== undefined ?
+      `&pageState=("traceFilter":("chips":"[${createURIFilterString(query.queryText)}]"))`
+      : '';
+
+    return `https://console.cloud.google.com/traces/list?` +
+      timeRangeParam +
+      projectParam +
+      filterParam;
+  }, [query, range]);
+
+  /**
+   * Create a special string for the filter part of the Google Cloud Trace URI
+   */
+  function createURIFilterString(queryText: string) {
+    // Split query string into multiple strings for each part of the filter
+    let queryFilters = queryText.match(/(?:[^\s"]+|"(?:\\"|[^"])*")+/g)
+    // From each filter part, create Google Cloud Trace URI string portion to match it
+    let uriFilterMaps = queryFilters?.map(filterItem => {
+      var key = filterItem.substring(0, filterItem.indexOf(":"));
+      var value = filterItem.substring(filterItem.indexOf(":") + 1, filterItem.length);
+
+      if (key.toLowerCase() === "label") {
+        key = `${key}:${value.substring(0, value.indexOf(":"))}`
+        value = value.substring(value.indexOf(":") + 1, value.length);
+      }
+      
+      var specialChars = ""
+      // Attempt to grab any special chars (+ or ^) so we can tack them on after removing quotes
+      if (value.length > 1) {
+        let firstChar = value.charAt(0)
+        let secondChar = value.charAt(1)
+
+        // Move specials chars from the front of value to key for Google Cloud Trace compatibility
+        if ((firstChar === "^" && secondChar === "+") || (firstChar === "+" && secondChar === "^")) {
+          specialChars = "^+"
+          value = value.substring(2, value.length)
+        } else if (firstChar === "+" || firstChar === "^") {
+          specialChars = firstChar
+          value = value.substring(1, value.length)
+        }
+      }
+
+      // Remove any quotes from value as these cause issues with the URI
+      value = value.replace(/(^"|"$)/g, '')
+      // Re-add any special characters if any
+      value = specialChars + value
+      // Convert escaped quotes in value to underscore Hex values for URI compatibility
+      value = value.replace(/\\"/gi, "_5C_5C_5C_22")
+      // Convert + in value to underscore Hex values for URI compatibility
+      value = value.replace("+", "%2B")
+
+      // Return the complete URI portion for this part of the filter
+      return `{_22k_22_3A_22${key}_22_2C_22t_22_3A10_2C_22v_22_3A_22_5C_22${value}_5C_22_22}`
+    })
+
+    return uriFilterMaps?.join(",")
   }
 
   return (
@@ -71,6 +139,17 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
         })}
         onKeyDown={onKeyDown}
       />
+      <Tooltip content='Click to view these results in the Google Cloud console'>
+        <LinkButton
+          href={gcpConsoleURI}
+          disabled={!gcpConsoleURI}
+          target='_blank'
+          icon='external-link-alt'
+          variant='secondary'
+        >
+          View in Cloud Trace
+        </LinkButton>
+      </Tooltip>
     </>
   );
 };

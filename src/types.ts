@@ -19,7 +19,7 @@ export interface Query extends DataQuery {
  * Query that basically gets all traces
  */
 export const defaultQuery: Partial<Query> = {
-  queryText: ``,
+  queryText: `MinLatency:100ms`,
 };
 
 /**

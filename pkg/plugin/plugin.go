@@ -7,10 +7,13 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	"cloud.google.com/go/trace/apiv1/tracepb"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"github.com/grafana/grafana-plugin-sdk-go/data"
 	cloudtrace "github.com/observiq/cloud-trace-grafana-ds/pkg/plugin/cloudtrace"
 )
 
@@ -170,7 +173,83 @@ type queryModel struct {
 }
 
 func (d *CloudTraceDatasource) query(ctx context.Context, pCtx backend.PluginContext, query backend.DataQuery) backend.DataResponse {
-	return backend.DataResponse{}
+	response := backend.DataResponse{}
+
+	var q queryModel
+	response.Error = json.Unmarshal(query.JSON, &q)
+	if response.Error != nil {
+		return response
+	}
+
+	filter, err := cloudtrace.GetListTracesFilter(q.QueryText)
+	if err != nil {
+		response.Error = err
+		return response
+	}
+	log.DefaultLogger.Info("Filter: ", "filter", filter)
+
+	clientRequest := cloudtrace.Query{
+		ProjectID: q.ProjectID,
+		Filter:    filter,
+		Limit:     query.MaxDataPoints,
+		TimeRange: cloudtrace.TimeRange{
+			From: query.TimeRange.From,
+			To:   query.TimeRange.To,
+		},
+	}
+
+	traces, err := d.client.ListTraces(ctx, &clientRequest)
+	if err != nil {
+		response.Error = fmt.Errorf("query: %w", err)
+		return response
+	}
+
+	f := createTracesFrame(traces)
+
+	response.Frames = append(response.Frames, f)
+
+	return response
+}
+
+func createTracesFrame(traces []*tracepb.Trace) *data.Frame {
+	// Create one frame for all traces
+	f := data.NewFrame("traceTable")
+	f.Meta = &data.FrameMeta{}
+	f.Meta.PreferredVisualization = data.VisTypeTable
+
+	// Create one set of fields for all traces
+	tableTraceIDField := data.NewField("Trace ID", nil, []string{})
+	tableTraceNameField := data.NewField("Trace name", nil, []string{})
+	tableStartTimeField := data.NewField("Start time", nil, []time.Time{})
+	tableLatencyField := data.NewField("Latency", nil, []int64{})
+	tableLatencyField.Config = &data.FieldConfig{
+		Unit: "ms",
+	}
+
+	// Add values to each field for each trace
+	for _, t := range traces {
+		tableTraceIDField.Append(t.TraceId)
+
+		spans := t.GetSpans()
+		if len(spans) < 1 {
+			continue
+		}
+
+		rootSpan := spans[0]
+		tableTraceNameField.Append(cloudtrace.GetTraceName(rootSpan))
+		tableStartTimeField.Append(rootSpan.GetStartTime().AsTime())
+		latency := int64(rootSpan.GetEndTime().AsTime().Sub(rootSpan.GetStartTime().AsTime()) / time.Millisecond)
+		tableLatencyField.Append(latency)
+	}
+
+	f.Fields = append(f.Fields,
+		tableTraceIDField,
+		tableTraceNameField,
+		tableStartTimeField,
+		tableLatencyField,
+	)
+
+	return f
 }
 
 // CheckHealth handles health checks sent from Grafana to the plugin.

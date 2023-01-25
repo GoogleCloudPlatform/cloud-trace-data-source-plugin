@@ -1,4 +1,4 @@
-package cloudlogging
+package cloudtrace
 
 import (
 	"context"
@@ -68,10 +68,7 @@ type Query struct {
 	ProjectID string
 	Filter    string
 	Limit     int64
-	TimeRange struct {
-		From time.Time
-		To   time.Time
-	}
+	TimeRange TimeRange
 }
 
 // ListProjects returns the project IDs of all visible projects
@@ -139,9 +136,9 @@ func (c *Client) ListTraces(ctx context.Context, q *Query) ([]*cloudtracepb.Trac
 		Filter:    q.Filter,
 		StartTime: timestamppb.New(q.TimeRange.From),
 		EndTime:   timestamppb.New(q.TimeRange.To),
-		OrderBy:   "timestamp desc",
+		OrderBy:   "start desc",
 		PageSize:  pageSize,
-		View:      tracepb.ListTracesRequest_COMPLETE,
+		View:      tracepb.ListTracesRequest_ROOTSPAN,
 	}
 
 	start := time.Now()
@@ -173,8 +170,4 @@ func (c *Client) ListTraces(ctx context.Context, q *Query) ([]*cloudtracepb.Trac
 		}
 	}
 	return entries, nil
-}
-
-func projectResourceName(projectID string) string {
-	return fmt.Sprintf("projects/%s", projectID)
 }

@@ -4,9 +4,9 @@ import { DataSourceSecureJsonData, GoogleAuthType } from '@grafana/google-sdk';
 import { FieldSet } from '@grafana/ui';
 import { JWTConfigEditor } from './components/JWTConfigEditor';
 import { JWTForm } from './components/JWTForm';
-import { DataSourceOptionsExt } from 'types';
+import { CloudTraceOptions } from 'types';
 
-type Props = DataSourcePluginOptionsEditorProps<DataSourceOptionsExt, DataSourceSecureJsonData>;
+type Props = DataSourcePluginOptionsEditorProps<CloudTraceOptions, DataSourceSecureJsonData>;
 
 /**
  * Config page that accepts a JWT token either through upload or pasting
@@ -32,7 +32,7 @@ export const ConfigEditor: React.FC<Props> = (props: Props) => {
    *
    * @param jsonData Remaining data source options
    */
-  const onResetJWTToken = (jsonData?: Partial<DataSourceOptionsExt> | null) => {
+  const onResetJWTToken = (jsonData?: Partial<CloudTraceOptions> | null) => {
     const nextSecureJsonData = { ...secureJsonData };
     const nextJsonData = !jsonData ? { ...options.jsonData } : { ...options.jsonData, ...jsonData };
 
@@ -48,7 +48,7 @@ export const ConfigEditor: React.FC<Props> = (props: Props) => {
     });
   };
 
-  const onJWTFormChange = (key: keyof DataSourceOptionsExt) => onUpdateDatasourceJsonDataOption(props, key);
+  const onJWTFormChange = (key: keyof CloudTraceOptions) => onUpdateDatasourceJsonDataOption(props, key);
 
   return (
     <>
