@@ -12,6 +12,7 @@ export interface DataSourceOptionsExt extends DataSourceOptions {
  */
 export interface Query extends DataQuery {
   queryText?: string;
+  traceId?: string;
   projectId: string;
 }
 

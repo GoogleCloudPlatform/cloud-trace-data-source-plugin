@@ -1,6 +1,6 @@
 import React, { KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { QueryEditorProps, SelectableValue } from '@grafana/data';
-import { InlineField, InlineFieldRow, LinkButton, Select, TextArea, Tooltip } from '@grafana/ui';
+import { InlineField, InlineFieldRow, Input, LinkButton, RadioButtonGroup, Select, TextArea, Tooltip } from '@grafana/ui';
 import { DataSource } from './datasource';
 import { CloudTraceOptions, defaultQuery, Query } from './types';
 
@@ -11,7 +11,14 @@ type Props = QueryEditorProps<DataSource, Query, CloudTraceOptions>;
  *
  */
 export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRunQuery }: React.PropsWithChildren<Props>) {
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  const onKeyDownTextArea = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey)) {
+      event.preventDefault();
+      onRunQuery();
+    }
+  };
+  
+  const onKeyDownInput = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter' && (event.shiftKey || event.ctrlKey)) {
       event.preventDefault();
       onRunQuery();
@@ -50,11 +57,15 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
     const filterParam = query.queryText !== undefined ?
       `&pageState=("traceFilter":("chips":"[${createURIFilterString(query.queryText)}]"))`
       : '';
+    const traceParam = query.traceId !== undefined ?
+    `&tid=${query.traceId}`
+    : '';
 
     return `https://console.cloud.google.com/traces/list?` +
       timeRangeParam +
       projectParam +
-      filterParam;
+      filterParam +
+      traceParam;
   }, [query, range]);
 
   /**
@@ -105,6 +116,50 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
     return uriFilterMaps?.join(",")
   }
 
+  const renderExploreBody = () => {
+    switch (query.queryType) {
+      case 'traceID':
+        return (
+          <InlineFieldRow>
+            <InlineField>
+              <Input
+                name="TraceID"
+                width={50}
+                value={query.traceId}
+                placeholder={'Enter a Cloud Trace ID (Run with Shift+Enter)'}
+                onBlur={onRunQuery}
+                onChange={e => onChange({
+                  ...query,
+                  traceId: e.currentTarget.value,
+                  projectId: query.projectId,
+                  refId: query.refId,
+                })}
+                onKeyDown={onKeyDownInput}
+              />
+            </InlineField>
+          </InlineFieldRow>
+        );
+      default:
+        return (
+          <TextArea
+            name="Query"
+            className="slate-query-field"
+            value={query.queryText}
+            rows={10}
+            placeholder="Enter a Cloud Trace query (Run with Shift+Enter)"
+            onBlur={onRunQuery}
+            onChange={e => onChange({
+              ...query,
+              queryText: e.currentTarget.value,
+              projectId: query.projectId,
+              refId: query.refId,
+            })}
+            onKeyDown={onKeyDownTextArea}
+          />
+        );
+    }
+  };
+
   return (
     <>
       <InlineFieldRow>
@@ -114,6 +169,7 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
             allowCustomValue
             formatCreateLabel={(v) => `Use project: ${v}`}
             onChange={e => onChange({
+              ...query,
               queryText: query.queryText,
               projectId: e.value!,
               refId: query.refId,
@@ -125,20 +181,25 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
           />
         </InlineField>
       </InlineFieldRow>
-      <TextArea
-        name="Query"
-        className="slate-query-field"
-        value={query.queryText}
-        rows={10}
-        placeholder="Enter a Cloud Trace query (Run with Shift+Enter)"
-        onBlur={onRunQuery}
-        onChange={e => onChange({
-          queryText: e.currentTarget.value,
-          projectId: query.projectId,
-          refId: query.refId,
-        })}
-        onKeyDown={onKeyDown}
-      />
+      <InlineFieldRow>
+        <InlineField label="Query type">
+          <RadioButtonGroup<string>
+            options={[
+              { value: undefined, label: "Filter" },
+              { value: 'traceID', label: 'Trace ID' },
+            ]}
+            value={query.queryType}
+            onChange={(v) =>
+              onChange({
+                ...query,
+                queryType: v,
+              })
+            }
+            size="md"
+          />
+        </InlineField>
+      </InlineFieldRow>
+      {renderExploreBody()}
       <Tooltip content='Click to view these results in the Google Cloud console'>
         <LinkButton
           href={gcpConsoleURI}

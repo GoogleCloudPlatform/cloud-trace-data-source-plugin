@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -167,7 +168,9 @@ func (d *CloudTraceDatasource) QueryData(ctx context.Context, req *backend.Query
 
 // queryModel is the fields needed to query from Grafana
 type queryModel struct {
+	TraceID       string `json:"traceId"`
 	QueryText     string `json:"queryText"`
+	QueryType     string `json:"queryType"`
 	ProjectID     string `json:"projectId"`
 	MaxDataPoints int    `json:"MaxDataPoints"`
 }
@@ -181,37 +184,126 @@ func (d *CloudTraceDatasource) query(ctx context.Context, pCtx backend.PluginCon
 		return response
 	}
 
-	filter, err := cloudtrace.GetListTracesFilter(q.QueryText)
+	// Check for QueryType also because we don't want show the Spans view if this is a Filter
+	// query with an old Trace ID still set
+	if q.QueryType == "traceID" && strings.TrimSpace(q.TraceID) != "" {
+		f, err := d.getTraceSpanFrame(ctx, q)
+		if err != nil {
+			response.Error = fmt.Errorf("trace query: %w", err)
+			return response
+		}
+
+		response.Frames = append(response.Frames, f)
+	}
+
+	f, err := d.getTracesTableFrame(ctx, q, query)
 	if err != nil {
-		response.Error = err
+		response.Error = fmt.Errorf("filter query: %w", err)
 		return response
 	}
-	log.DefaultLogger.Info("Filter: ", "filter", filter)
-
-	clientRequest := cloudtrace.Query{
-		ProjectID: q.ProjectID,
-		Filter:    filter,
-		Limit:     query.MaxDataPoints,
-		TimeRange: cloudtrace.TimeRange{
-			From: query.TimeRange.From,
-			To:   query.TimeRange.To,
-		},
-	}
-
-	traces, err := d.client.ListTraces(ctx, &clientRequest)
-	if err != nil {
-		response.Error = fmt.Errorf("query: %w", err)
-		return response
-	}
-
-	f := createTracesFrame(traces)
 
 	response.Frames = append(response.Frames, f)
 
 	return response
 }
 
-func createTracesFrame(traces []*tracepb.Trace) *data.Frame {
+func (d *CloudTraceDatasource) getTraceSpanFrame(ctx context.Context, q queryModel) (*data.Frame, error) {
+	clientRequest := cloudtrace.TraceQuery{
+		ProjectID: q.ProjectID,
+		TraceID:   q.TraceID,
+	}
+
+	trace, err := d.client.GetTrace(ctx, &clientRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := createTraceSpanFrame(trace)
+	if err != nil {
+		return nil, err
+	}
+
+	return f, nil
+}
+
+func createTraceSpanFrame(trace *tracepb.Trace) (*data.Frame, error) {
+	// Create one frame for all trace/spans
+	f := data.NewFrame(trace.GetTraceId())
+	f.Meta = &data.FrameMeta{}
+	f.Meta.PreferredVisualization = data.VisTypeTrace
+
+	// Create one set of fields for all trace/spans
+	traceIDField := data.NewField("traceID", nil, []string{})
+	spanIDField := data.NewField("spanID", nil, []string{})
+	parentSpanIDField := data.NewField("parentSpanID", nil, []string{})
+	operationNameField := data.NewField("operationName", nil, []string{})
+	serviceNameField := data.NewField("serviceName", nil, []string{})
+	serviceTagsField := data.NewField("serviceTags", nil, []json.RawMessage{})
+	startTimeField := data.NewField("startTime", nil, []time.Time{})
+	durationField := data.NewField("duration", nil, []int64{})
+	tagsField := data.NewField("tags", nil, []json.RawMessage{})
+
+	// Add values to each field for each span
+	for _, s := range trace.Spans {
+		serviceTags, spanTags, err := cloudtrace.GetTags(s)
+		if err != nil {
+			return nil, fmt.Errorf("tags conversion issue: %w", err)
+		}
+		tagsField.Append(spanTags)
+		serviceTagsField.Append(serviceTags)
+
+		traceIDField.Append(trace.GetTraceId())
+		spanIDField.Append(strconv.FormatUint(s.GetSpanId(), 10))
+		parentSpanIDField.Append(strconv.FormatUint(s.GetParentSpanId(), 10))
+		operationNameField.Append(cloudtrace.GetSpanOperationName(s))
+		serviceNameField.Append(cloudtrace.GetServiceName(s))
+		startTimeField.Append(s.GetStartTime().AsTime())
+		duration := s.GetEndTime().AsTime().UnixMilli() - s.GetStartTime().AsTime().UnixMilli()
+		durationField.Append(duration)
+	}
+
+	f.Fields = append(f.Fields,
+		traceIDField,
+		parentSpanIDField,
+		spanIDField,
+		serviceNameField,
+		operationNameField,
+		serviceTagsField,
+		tagsField,
+		startTimeField,
+		durationField,
+	)
+
+	return f, nil
+}
+
+func (d *CloudTraceDatasource) getTracesTableFrame(ctx context.Context, q queryModel, dQuery backend.DataQuery) (*data.Frame, error) {
+	filter, err := cloudtrace.GetListTracesFilter(q.QueryText)
+	if err != nil {
+		return nil, err
+	}
+
+	clientRequest := cloudtrace.TracesQuery{
+		ProjectID: q.ProjectID,
+		Filter:    filter,
+		Limit:     dQuery.MaxDataPoints,
+		TimeRange: cloudtrace.TimeRange{
+			From: dQuery.TimeRange.From,
+			To:   dQuery.TimeRange.To,
+		},
+	}
+
+	traces, err := d.client.ListTraces(ctx, &clientRequest)
+	if err != nil {
+		return nil, err
+	}
+
+	f := createTracesTableFrame(traces)
+
+	return f, nil
+}
+
+func createTracesTableFrame(traces []*tracepb.Trace) *data.Frame {
 	// Create one frame for all traces
 	f := data.NewFrame("traceTable")
 	f.Meta = &data.FrameMeta{}
@@ -238,7 +330,7 @@ func createTracesFrame(traces []*tracepb.Trace) *data.Frame {
 		rootSpan := spans[0]
 		tableTraceNameField.Append(cloudtrace.GetTraceName(rootSpan))
 		tableStartTimeField.Append(rootSpan.GetStartTime().AsTime())
-		latency := int64(rootSpan.GetEndTime().AsTime().Sub(rootSpan.GetStartTime().AsTime()) / time.Millisecond)
+		latency := rootSpan.GetEndTime().AsTime().UnixMilli() - rootSpan.GetStartTime().AsTime().UnixMilli()
 		tableLatencyField.Append(latency)
 	}
 

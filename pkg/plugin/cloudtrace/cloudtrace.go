@@ -1,6 +1,7 @@
 package cloudtrace
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,9 +11,17 @@ import (
 )
 
 const (
-	serviceKey = "g.co/gae/app/module"
-	methodKey  = "/http/method"
+	servicePrefix        = "service."
+	gaeServicePrefix     = "g.co/gae/app/"
+	otelServiceKey       = "service.name"
+	gaeServiceKey        = "g.co/gae/app/module"
+	gaeServiceVersionKey = "g.co/gae/app/version"
+	otelMethodKey        = "http.method"
+	cloudTraceMethodKey  = "/http/method"
 )
+
+// Regex for individual filters within query text
+var re = regexp.MustCompile(`(?:[^\s"]+|"(?:\\"|[^"])*")+`)
 
 // TimeRange holds both a from and to time
 type TimeRange struct {
@@ -20,18 +29,29 @@ type TimeRange struct {
 	To   time.Time
 }
 
+// GetServiceName returns the service name for the span
+func GetServiceName(span *tracepb.TraceSpan) string {
+	labels := span.GetLabels()
+
+	serviceName := labels[otelServiceKey]
+	if serviceName == "" {
+		serviceName = labels[gaeServiceKey]
+	}
+
+	return serviceName
+}
+
 // GetTraceName gets the name, service label value, and method label value
 // for the span and combines them to create a descriptive name
 func GetTraceName(span *tracepb.TraceSpan) string {
 	namePart := span.GetName()
-	labels := span.GetLabels()
 
-	servicePart := labels[serviceKey]
+	servicePart := GetServiceName(span)
 	if servicePart != "" {
 		servicePart = fmt.Sprintf("%s: ", servicePart)
 	}
 
-	methodPart := labels[methodKey]
+	methodPart := getHTTPMethod(span)
 	if methodPart != "" {
 		methodPart = fmt.Sprintf("HTTP %s ", methodPart)
 	}
@@ -39,10 +59,48 @@ func GetTraceName(span *tracepb.TraceSpan) string {
 	return fmt.Sprintf("%s%s%s", servicePart, methodPart, namePart)
 }
 
+// GetSpanOperationName gets the name and method label value
+// for the span and combines them to create a descriptive name
+func GetSpanOperationName(span *tracepb.TraceSpan) string {
+	namePart := span.GetName()
+
+	methodPart := getHTTPMethod(span)
+	if methodPart != "" {
+		methodPart = fmt.Sprintf("HTTP %s ", methodPart)
+	}
+
+	return fmt.Sprintf("%s%s", methodPart, namePart)
+}
+
+// GetTags converts Google Trace labels to Grafana service and span tags
+func GetTags(span *tracepb.TraceSpan) (serviceTags json.RawMessage, spanTags json.RawMessage, err error) {
+	spanLabels := span.GetLabels()
+	serviceTagsMapArray := []map[string]string{}
+	spanTagsMapArray := []map[string]string{}
+	for key, value := range spanLabels {
+		if strings.HasPrefix(key, servicePrefix) || strings.HasPrefix(key, gaeServicePrefix) {
+			serviceTagsMapArray = append(serviceTagsMapArray, map[string]string{"key": key, "value": value})
+		} else {
+			spanTagsMapArray = append(spanTagsMapArray, map[string]string{"key": key, "value": value})
+		}
+	}
+
+	serviceTags, err = json.Marshal(serviceTagsMapArray)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	spanTags, err = json.Marshal(spanTagsMapArray)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return serviceTags, spanTags, nil
+}
+
 // GetListTracesFilter takes the raw query text from a user and converts it
 // to a filter string as expected by the Cloud Trace API
 func GetListTracesFilter(queryText string) (string, error) {
-	re := regexp.MustCompile(`(?:[^\s"]+|"(?:\\"|[^"])*")+`)
 	// Collect all filter parts from the query text
 	qTFilters := re.FindAllString(queryText, -1)
 
@@ -57,6 +115,17 @@ func GetListTracesFilter(queryText string) (string, error) {
 	}
 
 	return strings.Join(filters, " "), nil
+}
+
+func getHTTPMethod(span *tracepb.TraceSpan) string {
+	labels := span.GetLabels()
+
+	httpMethod := labels[otelMethodKey]
+	if httpMethod == "" {
+		httpMethod = labels[cloudTraceMethodKey]
+	}
+
+	return httpMethod
 }
 
 func getFilterKeyValue(qTFilter string) (key string, value string, err error) {
@@ -96,10 +165,12 @@ func getFilterKeyValue(qTFilter string) (key string, value string, err error) {
 		key = "url"
 	case "Method":
 		key = "method"
+		// Currently matches the Google Cloud Trace UI filter, but ignores "service.version" matches
 	case "Version":
-		key = "g.co/gae/app/version" // This is somewhat of a guess as our test service doesn't seem to be reporting this
+		key = gaeServiceVersionKey
+		// Currently matches the Google Cloud Trace UI filter, but ignores "service.name" matches
 	case "Service":
-		key = "g.co/gae/app/module"
+		key = gaeServiceKey
 	case "Status":
 		key = "/http/status_code"
 	}

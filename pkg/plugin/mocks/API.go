@@ -32,11 +32,11 @@ func (_m *API) Close() error {
 }
 
 // ListTraces provides a mock function with given fields: _a0, _a1
-func (_m *API) ListTraces(_a0 context.Context, _a1 *cloudtrace.Query) ([]*cloudtracepb.Trace, error) {
+func (_m *API) ListTraces(_a0 context.Context, _a1 *cloudtrace.TracesQuery) ([]*cloudtracepb.Trace, error) {
 	ret := _m.Called(_a0, _a1)
 
 	var r0 []*cloudtracepb.Trace
-	if rf, ok := ret.Get(0).(func(context.Context, *cloudtrace.Query) []*cloudtracepb.Trace); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, *cloudtrace.TracesQuery) []*cloudtracepb.Trace); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
@@ -45,7 +45,30 @@ func (_m *API) ListTraces(_a0 context.Context, _a1 *cloudtrace.Query) ([]*cloudt
 	}
 
 	var r1 error
-	if rf, ok := ret.Get(1).(func(context.Context, *cloudtrace.Query) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, *cloudtrace.TracesQuery) error); ok {
+		r1 = rf(_a0, _a1)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// GetTrace provides a mock function with given fields: _a0, _a1
+func (_m *API) GetTrace(_a0 context.Context, _a1 *cloudtrace.TraceQuery) (*cloudtracepb.Trace, error) {
+	ret := _m.Called(_a0, _a1)
+
+	var r0 *cloudtracepb.Trace
+	if rf, ok := ret.Get(0).(func(context.Context, *cloudtrace.TraceQuery) *cloudtracepb.Trace); ok {
+		r0 = rf(_a0, _a1)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*cloudtracepb.Trace)
+		}
+	}
+
+	var r1 error
+	if rf, ok := ret.Get(1).(func(context.Context, *cloudtrace.TraceQuery) error); ok {
 		r1 = rf(_a0, _a1)
 	} else {
 		r1 = ret.Error(1)

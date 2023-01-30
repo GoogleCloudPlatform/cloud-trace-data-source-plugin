@@ -23,7 +23,9 @@ const testConnectionTimeWindow = time.Hour * 24 * 30 // 30 days
 // API implements the methods we need to query traces and list projects from GCP
 type API interface {
 	// ListTraces retrieves all traces matching some query filter up to the given limit
-	ListTraces(context.Context, *Query) ([]*cloudtracepb.Trace, error)
+	ListTraces(context.Context, *TracesQuery) ([]*cloudtracepb.Trace, error)
+	// GetTrace retrieves a trace matching a trace ID
+	GetTrace(context.Context, *TraceQuery) (*cloudtracepb.Trace, error)
 	// TestConnection queries for any trace from the given project
 	TestConnection(ctx context.Context, projectID string) error
 	// ListProjects returns the project IDs of all visible projects
@@ -63,12 +65,18 @@ func (c *Client) Close() error {
 	return c.tClient.Close()
 }
 
-// Query is the information from a Grafana query needed to query GCP for logs
-type Query struct {
+// TracesQuery is the information from a Grafana query needed to query GCP for traces
+type TracesQuery struct {
 	ProjectID string
 	Filter    string
 	Limit     int64
 	TimeRange TimeRange
+}
+
+// TraceQuery is the information from a Grafana query needed to query GCP for a trace
+type TraceQuery struct {
+	ProjectID string
+	TraceID   string
 }
 
 // ListProjects returns the project IDs of all visible projects
@@ -127,7 +135,7 @@ func (c *Client) TestConnection(ctx context.Context, projectID string) error {
 }
 
 // ListTraces retrieves all traces matching some query filter up to the given limit
-func (c *Client) ListTraces(ctx context.Context, q *Query) ([]*cloudtracepb.Trace, error) {
+func (c *Client) ListTraces(ctx context.Context, q *TracesQuery) ([]*cloudtracepb.Trace, error) {
 	// Never exceed the maximum page size
 	pageSize := int32(math.Min(float64(q.Limit), 1000))
 
@@ -170,4 +178,27 @@ func (c *Client) ListTraces(ctx context.Context, q *Query) ([]*cloudtracepb.Trac
 		}
 	}
 	return entries, nil
+}
+
+// GetTrace retrieves a single trace given a trace ID
+func (c *Client) GetTrace(ctx context.Context, q *TraceQuery) (*cloudtracepb.Trace, error) {
+	req := cloudtracepb.GetTraceRequest{
+		ProjectId: q.ProjectID,
+		TraceId:   q.TraceID,
+	}
+
+	start := time.Now()
+	defer func() {
+		log.DefaultLogger.Info(fmt.Sprintf("Finished getting trace: %s", q.TraceID), "duration", time.Since(start).String())
+	}()
+
+	trace, err := c.tClient.GetTrace(ctx, &req)
+	if err != nil {
+		return nil, err
+	}
+	if trace == nil {
+		return nil, errors.New("nil response")
+	}
+
+	return trace, nil
 }

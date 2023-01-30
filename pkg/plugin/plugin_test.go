@@ -58,13 +58,13 @@ func TestQueryData_InvalidJSON(t *testing.T) {
 	client.AssertExpectations(t)
 }
 
-func TestQueryData_GCPError(t *testing.T) {
+func TestQueryData_ListTracesGCPError(t *testing.T) {
 	to := time.Now()
 	from := to.Add(-1 * time.Hour)
 	expectedErr := errors.New("something was wrong with the request")
 
 	client := mocks.NewAPI(t)
-	client.On("ListTraces", mock.Anything, &cloudtrace.Query{
+	client.On("ListTraces", mock.Anything, &cloudtrace.TracesQuery{
 		ProjectID: "testing",
 		Filter:    `resource.type:"testing"`,
 		Limit:     20,
@@ -98,10 +98,75 @@ func TestQueryData_GCPError(t *testing.T) {
 	client.AssertExpectations(t)
 }
 
-func TestQueryData_SingleTrace(t *testing.T) {
+func TestQueryData_GetTraceGCPError(t *testing.T) {
 	to := time.Now()
 	from := to.Add(-1 * time.Hour)
-	frameName := "traceTable"
+	expectedErr := errors.New("something was wrong with the request")
+
+	client := mocks.NewAPI(t)
+	client.On("GetTrace", mock.Anything, &cloudtrace.TraceQuery{
+		ProjectID: "testing",
+		TraceID:   "123",
+	}).Return(nil, expectedErr)
+
+	ds := CloudTraceDatasource{
+		client: client,
+	}
+	refID := "test"
+	resp, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
+		Queries: []backend.DataQuery{
+			{
+				JSON:  []byte(`{"projectId": "testing", "queryType": "traceID", "traceId": "123", "queryText": "resource.type:\"testing\""}`),
+				RefID: refID,
+				TimeRange: backend.TimeRange{
+					From: from,
+					To:   to,
+				},
+				MaxDataPoints: 20,
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.ErrorContains(t, resp.Responses[refID].Error, expectedErr.Error())
+	require.Nil(t, resp.Responses[refID].Frames)
+	client.AssertExpectations(t)
+}
+
+func TestQueryData_BadFilter(t *testing.T) {
+	to := time.Now()
+	from := to.Add(-1 * time.Hour)
+
+	client := mocks.NewAPI(t)
+	ds := CloudTraceDatasource{
+		client: client,
+	}
+	refID := "test"
+	resp, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
+		Queries: []backend.DataQuery{
+			{
+				JSON:  []byte(`{"projectId": "testing", "traceId": "123", "queryText": "resource.type.testing"}`),
+				RefID: refID,
+				TimeRange: backend.TimeRange{
+					From: from,
+					To:   to,
+				},
+				MaxDataPoints: 20,
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	require.ErrorContains(t, resp.Responses[refID].Error, "bad filter [resource.type.testing]. Must be in form [key]:[value]")
+	require.Nil(t, resp.Responses[refID].Frames)
+	client.AssertExpectations(t)
+}
+
+func TestQueryData_SingleTraceTableWithSpans(t *testing.T) {
+	to := time.Now()
+	from := to.Add(-1 * time.Hour)
+	tableFrameName := "traceTable"
+	traceID := "123"
 	startTime := timestamppb.New(time.UnixMilli(1660920349373))
 	endTime := timestamppb.New(time.UnixMilli(1660920349374))
 
@@ -117,12 +182,97 @@ func TestQueryData_SingleTrace(t *testing.T) {
 	}
 	trace := tracepb.Trace{
 		ProjectId: "testProject",
-		TraceId:   "traceID",
+		TraceId:   traceID,
 		Spans:     spans,
 	}
 
 	client := mocks.NewAPI(t)
-	client.On("ListTraces", mock.Anything, &cloudtrace.Query{
+	client.On("ListTraces", mock.Anything, &cloudtrace.TracesQuery{
+		ProjectID: "testing",
+		Filter:    `resource.type:"testing"`,
+		Limit:     20,
+		TimeRange: cloudtrace.TimeRange{
+			From: from,
+			To:   to,
+		},
+	}).Return([]*tracepb.Trace{&trace}, nil)
+	client.On("GetTrace", mock.Anything, &cloudtrace.TraceQuery{
+		ProjectID: "testing",
+		TraceID:   traceID,
+	}).Return(&trace, nil)
+	client.On("Close").Return(nil)
+
+	ds := CloudTraceDatasource{
+		client: client,
+	}
+	refID := "test"
+	resp, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
+		Queries: []backend.DataQuery{
+			{
+				JSON:  []byte(`{"projectId": "testing", "queryType": "traceID", "traceId": "123", "queryText": "resource.type:\"testing\""}`),
+				RefID: refID,
+				TimeRange: backend.TimeRange{
+					From: from,
+					To:   to,
+				},
+				MaxDataPoints: 20,
+			},
+		},
+	})
+	ds.Dispose()
+	require.NoError(t, err)
+	require.Len(t, resp.Responses[refID].Frames, 2)
+
+	traceFrame := resp.Responses[refID].Frames[0]
+	require.Equal(t, traceID, traceFrame.Name)
+	require.Len(t, traceFrame.Fields, 9)
+	require.Equal(t, data.VisTypeTrace, string(traceFrame.Meta.PreferredVisualization))
+
+	expectedFrame := []byte(`{"schema":{"name":"123","meta":{"preferredVisualisationType":"trace"},"fields":[{"name":"traceID","type":"string","typeInfo":{"frame":"string"}},{"name":"parentSpanID","type":"string","typeInfo":{"frame":"string"}},{"name":"spanID","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceName","type":"string","typeInfo":{"frame":"string"}},{"name":"operationName","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceTags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"tags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"startTime","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"duration","type":"number","typeInfo":{"frame":"int64"}}]},"data":{"values":[["123"],["0"],["1"],[""],["spanName"],[[]],[[{"key":"key1","value":"value1"}]],[1660920349373],[1]]}}`)
+
+	serializedFrame, err := traceFrame.MarshalJSON()
+	require.NoError(t, err)
+	require.Equal(t, string(expectedFrame), string(serializedFrame))
+
+	tableFrame := resp.Responses[refID].Frames[1]
+	require.Equal(t, tableFrameName, tableFrame.Name)
+	require.Len(t, tableFrame.Fields, 4)
+	require.Equal(t, data.VisTypeTable, string(tableFrame.Meta.PreferredVisualization))
+
+	expectedFrame = []byte(`{"schema":{"name":"traceTable","meta":{"preferredVisualisationType":"table"},"fields":[{"name":"Trace ID","type":"string","typeInfo":{"frame":"string"}},{"name":"Trace name","type":"string","typeInfo":{"frame":"string"}},{"name":"Start time","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"Latency","type":"number","typeInfo":{"frame":"int64"},"config":{"unit":"ms"}}]},"data":{"values":[["123"],["spanName"],[1660920349373],[1]]}}`)
+
+	serializedFrame, err = tableFrame.MarshalJSON()
+	require.NoError(t, err)
+	require.Equal(t, string(expectedFrame), string(serializedFrame))
+	client.AssertExpectations(t)
+}
+
+func TestQueryData_SingleTraceTable(t *testing.T) {
+	to := time.Now()
+	from := to.Add(-1 * time.Hour)
+	tableFrameName := "traceTable"
+	traceID := "123"
+	startTime := timestamppb.New(time.UnixMilli(1660920349373))
+	endTime := timestamppb.New(time.UnixMilli(1660920349374))
+
+	spans := []*tracepb.TraceSpan{
+		{
+			SpanId:    1,
+			Kind:      tracepb.TraceSpan_RPC_SERVER,
+			Name:      "spanName",
+			StartTime: startTime,
+			EndTime:   endTime,
+			Labels:    map[string]string{"key1": "value1"},
+		},
+	}
+	trace := tracepb.Trace{
+		ProjectId: "testProject",
+		TraceId:   traceID,
+		Spans:     spans,
+	}
+
+	client := mocks.NewAPI(t)
+	client.On("ListTraces", mock.Anything, &cloudtrace.TracesQuery{
 		ProjectID: "testing",
 		Filter:    `resource.type:"testing"`,
 		Limit:     20,
@@ -140,7 +290,7 @@ func TestQueryData_SingleTrace(t *testing.T) {
 	resp, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
 		Queries: []backend.DataQuery{
 			{
-				JSON:  []byte(`{"projectId": "testing", "queryText": "resource.type:\"testing\""}`),
+				JSON:  []byte(`{"projectId": "testing", "traceId": "123", "queryText": "resource.type:\"testing\""}`),
 				RefID: refID,
 				TimeRange: backend.TimeRange{
 					From: from,
@@ -154,14 +304,14 @@ func TestQueryData_SingleTrace(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Responses[refID].Frames, 1)
 
-	frame := resp.Responses[refID].Frames[0]
-	require.Equal(t, frameName, frame.Name)
-	require.Len(t, frame.Fields, 4)
-	require.Equal(t, data.VisTypeTable, string(frame.Meta.PreferredVisualization))
+	tableFrame := resp.Responses[refID].Frames[0]
+	require.Equal(t, tableFrameName, tableFrame.Name)
+	require.Len(t, tableFrame.Fields, 4)
+	require.Equal(t, data.VisTypeTable, string(tableFrame.Meta.PreferredVisualization))
 
-	expectedFrame := []byte(`{"schema":{"name":"traceTable","meta":{"preferredVisualisationType":"table"},"fields":[{"name":"Trace ID","type":"string","typeInfo":{"frame":"string"}},{"name":"Trace name","type":"string","typeInfo":{"frame":"string"}},{"name":"Start time","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"Latency","type":"number","typeInfo":{"frame":"int64"},"config":{"unit":"ms"}}]},"data":{"values":[["traceID"],["spanName"],[1660920349373],[1]]}}`)
+	expectedFrame := []byte(`{"schema":{"name":"traceTable","meta":{"preferredVisualisationType":"table"},"fields":[{"name":"Trace ID","type":"string","typeInfo":{"frame":"string"}},{"name":"Trace name","type":"string","typeInfo":{"frame":"string"}},{"name":"Start time","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"Latency","type":"number","typeInfo":{"frame":"int64"},"config":{"unit":"ms"}}]},"data":{"values":[["123"],["spanName"],[1660920349373],[1]]}}`)
 
-	serializedFrame, err := frame.MarshalJSON()
+	serializedFrame, err := tableFrame.MarshalJSON()
 	require.NoError(t, err)
 	require.Equal(t, string(expectedFrame), string(serializedFrame))
 	client.AssertExpectations(t)
