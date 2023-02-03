@@ -1,3 +1,19 @@
+/**
+ * Copyright 2023 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 import React, { KeyboardEvent, useEffect, useMemo, useState } from 'react';
 import { QueryEditorProps, SelectableValue } from '@grafana/data';
 import { InlineField, InlineFieldRow, Input, LinkButton, RadioButtonGroup, Select, TextArea, Tooltip } from '@grafana/ui';
@@ -55,11 +71,11 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
       `&project=${query.projectId}`
       : '';
     const filterParam = query.queryText !== undefined ?
-      `&pageState=("traceFilter":("chips":"[${createURIFilterString(query.queryText)}]"))`
+      `&pageState=("traceFilter":("chips":"[${createURIFilterString(query.queryText)}]","traceIntervalPicker":("groupValue":"P1M","customValue":null)))`
       : '';
     const traceParam = query.traceId !== undefined ?
-    `&tid=${query.traceId}`
-    : '';
+      `&tid=${query.traceId}`
+      : '';
 
     return `https://console.cloud.google.com/traces/list?` +
       timeRangeParam +
@@ -76,15 +92,15 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
     let queryFilters = queryText.match(/(?:[^\s"]+|"(?:\\"|[^"])*")+/g)
     // From each filter part, create Google Cloud Trace URI string portion to match it
     let uriFilterMaps = queryFilters?.map(filterItem => {
-      var key = filterItem.substring(0, filterItem.indexOf(":"));
-      var value = filterItem.substring(filterItem.indexOf(":") + 1, filterItem.length);
+      let key = filterItem.substring(0, filterItem.indexOf(":"));
+      let value = filterItem.substring(filterItem.indexOf(":") + 1, filterItem.length);
 
       if (key.toLowerCase() === "label") {
         key = `${key}:${value.substring(0, value.indexOf(":"))}`
         value = value.substring(value.indexOf(":") + 1, value.length);
       }
       
-      var specialChars = ""
+      let specialChars = ""
       // Attempt to grab any special chars (+ or ^) so we can tack them on after removing quotes
       if (value.length > 1) {
         let firstChar = value.charAt(0)

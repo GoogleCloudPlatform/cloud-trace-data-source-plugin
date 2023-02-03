@@ -8,14 +8,17 @@
   "backend": true,
   "tracing": true,
   "executable": "gpx_gcp-tracing",
+  "queryOptions": {
+    "maxDataPoints": true
+  },
   "info": {
     "description": "",
     "author": {
-      "name": "false",
-      "url": ""
+      "name": "GCP trace team",
+      "url": "https://cloud.google.com/trace"
     },
     "keywords": [
-      "gcp"
+      "gcp", "cloud trace"
     ],
     "logos": {
       "small": "img/logo.svg",

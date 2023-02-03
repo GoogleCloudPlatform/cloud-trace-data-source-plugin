@@ -1,3 +1,17 @@
+// Copyright 2023 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package plugin
 
 import (
@@ -110,7 +124,7 @@ type ListProjectsResponse struct {
 //
 // Currently only projects are fetched, other requests receive a 404
 func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
-	log.DefaultLogger.Info("CallResource called")
+	// log.DefaultLogger.Info("CallResource called")
 
 	// Right now we only support calls to `/projects`
 	resource := req.Path
@@ -123,11 +137,7 @@ func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.Ca
 
 	projects, err := d.client.ListProjects(ctx)
 	if err != nil {
-		log.DefaultLogger.Error("error listing", "error", err)
-		return sender.Send(&backend.CallResourceResponse{
-			Status: http.StatusInternalServerError,
-			Body:   []byte(`Unable to list projects`),
-		})
+		log.DefaultLogger.Warn("problem listing projects", "error", err)
 	}
 
 	body, err := json.Marshal(&ListProjectsResponse{Projects: projects})
@@ -149,7 +159,7 @@ func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.Ca
 // The QueryDataResponse contains a map of RefID to the response for each query, and each response
 // contains Frames ([]*Frame).
 func (d *CloudTraceDatasource) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
-	log.DefaultLogger.Info("QueryData called")
+	// log.DefaultLogger.Info("QueryData called")
 
 	// create response struct
 	response := backend.NewQueryDataResponse()
@@ -184,8 +194,6 @@ func (d *CloudTraceDatasource) query(ctx context.Context, pCtx backend.PluginCon
 		return response
 	}
 
-	// Check for QueryType also because we don't want show the Spans view if this is a Filter
-	// query with an old Trace ID still set
 	if q.QueryType == "traceID" && strings.TrimSpace(q.TraceID) != "" {
 		f, err := d.getTraceSpanFrame(ctx, q)
 		if err != nil {
@@ -196,13 +204,15 @@ func (d *CloudTraceDatasource) query(ctx context.Context, pCtx backend.PluginCon
 		response.Frames = append(response.Frames, f)
 	}
 
-	f, err := d.getTracesTableFrame(ctx, q, query)
-	if err != nil {
-		response.Error = fmt.Errorf("filter query: %w", err)
-		return response
-	}
+	if q.QueryType == "" {
+		f, err := d.getTracesTableFrame(ctx, q, query)
+		if err != nil {
+			response.Error = fmt.Errorf("filter query: %w", err)
+			return response
+		}
 
-	response.Frames = append(response.Frames, f)
+		response.Frames = append(response.Frames, f)
+	}
 
 	return response
 }
@@ -218,15 +228,12 @@ func (d *CloudTraceDatasource) getTraceSpanFrame(ctx context.Context, q queryMod
 		return nil, err
 	}
 
-	f, err := createTraceSpanFrame(trace)
-	if err != nil {
-		return nil, err
-	}
+	f := createTraceSpanFrame(trace)
 
 	return f, nil
 }
 
-func createTraceSpanFrame(trace *tracepb.Trace) (*data.Frame, error) {
+func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 	// Create one frame for all trace/spans
 	f := data.NewFrame(trace.GetTraceId())
 	f.Meta = &data.FrameMeta{}
@@ -247,7 +254,8 @@ func createTraceSpanFrame(trace *tracepb.Trace) (*data.Frame, error) {
 	for _, s := range trace.Spans {
 		serviceTags, spanTags, err := cloudtrace.GetTags(s)
 		if err != nil {
-			return nil, fmt.Errorf("tags conversion issue: %w", err)
+			log.DefaultLogger.Warn("failed getting span tags", "error", err)
+			continue
 		}
 		tagsField.Append(spanTags)
 		serviceTagsField.Append(serviceTags)
@@ -274,7 +282,7 @@ func createTraceSpanFrame(trace *tracepb.Trace) (*data.Frame, error) {
 		durationField,
 	)
 
-	return f, nil
+	return f
 }
 
 func (d *CloudTraceDatasource) getTracesTableFrame(ctx context.Context, q queryModel, dQuery backend.DataQuery) (*data.Frame, error) {
@@ -324,6 +332,7 @@ func createTracesTableFrame(traces []*tracepb.Trace) *data.Frame {
 
 		spans := t.GetSpans()
 		if len(spans) < 1 {
+			log.DefaultLogger.Warn("failed getting trace spans", "traceID", t.TraceId)
 			continue
 		}
 
@@ -349,7 +358,7 @@ func createTracesTableFrame(traces []*tracepb.Trace) *data.Frame {
 // datasource configuration page which allows users to verify that
 // a datasource is working as expected.
 func (d *CloudTraceDatasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
-	log.DefaultLogger.Info("CheckHealth called")
+	// log.DefaultLogger.Info("CheckHealth called")
 
 	var status = backend.HealthStatusOk
 	settings := req.PluginContext.DataSourceInstanceSettings
@@ -359,28 +368,7 @@ func (d *CloudTraceDatasource) CheckHealth(ctx context.Context, req *backend.Che
 		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
 
-	privateKey, ok := settings.DecryptedSecureJSONData[privateKeyKey]
-	if !ok || privateKey == "" {
-		return nil, errMissingCredentials
-	}
-
-	serviceAccount, err := conf.toServiceAccountJSON(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("create credentials: %w", err)
-	}
-
-	client, err := cloudtrace.NewClient(ctx, serviceAccount)
-	if err != nil {
-		return nil, err
-	}
-
-	defer func() {
-		if err := client.Close(); err != nil {
-			log.DefaultLogger.Warn("failed closing client", "error", err)
-		}
-	}()
-
-	if err := client.TestConnection(ctx, conf.DefaultProject); err != nil {
+	if err := d.client.TestConnection(ctx, conf.DefaultProject); err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
 			Message: fmt.Sprintf("failed to run test query: %s", err),

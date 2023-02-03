@@ -1,3 +1,17 @@
+// Copyright 2023 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package plugin
 
 import (
@@ -162,10 +176,9 @@ func TestQueryData_BadFilter(t *testing.T) {
 	client.AssertExpectations(t)
 }
 
-func TestQueryData_SingleTraceTableWithSpans(t *testing.T) {
+func TestQueryData_SingleTraceSpans(t *testing.T) {
 	to := time.Now()
 	from := to.Add(-1 * time.Hour)
-	tableFrameName := "traceTable"
 	traceID := "123"
 	startTime := timestamppb.New(time.UnixMilli(1660920349373))
 	endTime := timestamppb.New(time.UnixMilli(1660920349374))
@@ -187,15 +200,6 @@ func TestQueryData_SingleTraceTableWithSpans(t *testing.T) {
 	}
 
 	client := mocks.NewAPI(t)
-	client.On("ListTraces", mock.Anything, &cloudtrace.TracesQuery{
-		ProjectID: "testing",
-		Filter:    `resource.type:"testing"`,
-		Limit:     20,
-		TimeRange: cloudtrace.TimeRange{
-			From: from,
-			To:   to,
-		},
-	}).Return([]*tracepb.Trace{&trace}, nil)
 	client.On("GetTrace", mock.Anything, &cloudtrace.TraceQuery{
 		ProjectID: "testing",
 		TraceID:   traceID,
@@ -221,7 +225,7 @@ func TestQueryData_SingleTraceTableWithSpans(t *testing.T) {
 	})
 	ds.Dispose()
 	require.NoError(t, err)
-	require.Len(t, resp.Responses[refID].Frames, 2)
+	require.Len(t, resp.Responses[refID].Frames, 1)
 
 	traceFrame := resp.Responses[refID].Frames[0]
 	require.Equal(t, traceID, traceFrame.Name)
@@ -234,16 +238,6 @@ func TestQueryData_SingleTraceTableWithSpans(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, string(expectedFrame), string(serializedFrame))
 
-	tableFrame := resp.Responses[refID].Frames[1]
-	require.Equal(t, tableFrameName, tableFrame.Name)
-	require.Len(t, tableFrame.Fields, 4)
-	require.Equal(t, data.VisTypeTable, string(tableFrame.Meta.PreferredVisualization))
-
-	expectedFrame = []byte(`{"schema":{"name":"traceTable","meta":{"preferredVisualisationType":"table"},"fields":[{"name":"Trace ID","type":"string","typeInfo":{"frame":"string"}},{"name":"Trace name","type":"string","typeInfo":{"frame":"string"}},{"name":"Start time","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"Latency","type":"number","typeInfo":{"frame":"int64"},"config":{"unit":"ms"}}]},"data":{"values":[["123"],["spanName"],[1660920349373],[1]]}}`)
-
-	serializedFrame, err = tableFrame.MarshalJSON()
-	require.NoError(t, err)
-	require.Equal(t, string(expectedFrame), string(serializedFrame))
 	client.AssertExpectations(t)
 }
 
