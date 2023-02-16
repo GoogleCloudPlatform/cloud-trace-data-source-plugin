@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { DataSourcePluginMeta } from '@grafana/data';
+import { ConstantVector, DataSourcePluginMeta, FieldType } from '@grafana/data';
 import { GoogleAuthType } from '@grafana/google-sdk';
 import { BackendSrv } from '@grafana/runtime';
 import { random, times } from 'lodash';
@@ -69,6 +69,72 @@ describe('Google Cloud Trace Data Source', () => {
             expect(backend.get).toHaveBeenCalledWith(`/api/datasources/${ds.id}/resources/projects`);
         });
     });
+
+    describe('filterQuery', () => {
+        it('returns true if hide is not set', () => {
+            const ds = makeDataSource();
+            const query = {
+                refId: '1',
+                projectId: '1',
+            };
+            expect(ds.filterQuery(query)).toBe(true);
+        });
+        it('returns true if hide is set to false', () => {
+            const ds = makeDataSource();
+            const query = {
+                refId: '1',
+                projectId: '1',
+                hide: false
+            };
+            expect(ds.filterQuery(query)).toBe(true);
+        });
+        it('returns false if hide is set to true', () => {
+            const ds = makeDataSource();
+            const query = {
+                refId: '1',
+                projectId: '1',
+                hide: true
+            };
+            expect(ds.filterQuery(query)).toBe(false);
+        });
+    });
+
+    describe('addLinksToTraceIdColumn', () => {
+        it('makes no changes when data frame is not named "traceTable"', () => {
+            const ds = makeDataSource();
+            const frame = makeFrame(ds.uid);
+            frame.name = "Wrong Name"
+            frame.fields[0].config = {}
+            const expectedFrame = makeFrame(ds.uid);
+            expectedFrame.name = "Wrong Name"
+            expectedFrame.fields[0].config = {}
+            const query = {
+                refId: '1',
+                projectId: '2',
+                traceId: '3',
+            };
+            const result = ds.addLinksToTraceIdColumn(frame, query);
+            expect(result.length).toBe(1);
+            expect(result[0]).toEqual(expectedFrame);
+        });
+    });
+
+    describe('addLinksToTraceIdColumn', () => {
+        it('adds links when data frame is named "traceTable"', () => {
+            const ds = makeDataSource();
+            const frame = makeFrame(ds.uid);
+            frame.fields[0].config = {}
+            const expectedFrame = makeFrame(ds.uid);
+            const query = {
+                refId: '1',
+                projectId: '2',
+                traceId: '3',
+            };
+            const result = ds.addLinksToTraceIdColumn(frame, query);
+            expect(result.length).toBe(1);
+            expect(result[0]).toEqual(expectedFrame);
+        });
+    });
 });
 
 const makeDataSource = () => {
@@ -84,4 +150,38 @@ const makeDataSource = () => {
         name: 'something',
         readOnly: true,
     });
+}
+
+const makeFrame = (datasourceUid: string) => {
+    const values = new ConstantVector<string>("test", 1)
+    const link = {
+        title: "Trace: ${__value.raw}",
+        url: "",
+        internal: {
+            datasourceName: "something",
+            datasourceUid: datasourceUid,
+            query: {
+                projectId: "2",
+                queryType: "traceID",
+                refId: "1",
+                traceId: "${__value.raw}",
+            },
+        },
+    };
+    const config: any = {
+        links: [link]
+    }
+    const field = {
+        name: "Trace ID",
+        type: FieldType.string,
+        config: config,
+        values: values
+    };
+    const frame = {
+        name: "traceTable",
+        fields: [field],
+        length: 1,
+    };
+
+    return frame;
 }

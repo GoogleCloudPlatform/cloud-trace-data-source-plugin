@@ -247,7 +247,7 @@ func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 	serviceNameField := data.NewField("serviceName", nil, []string{})
 	serviceTagsField := data.NewField("serviceTags", nil, []json.RawMessage{})
 	startTimeField := data.NewField("startTime", nil, []time.Time{})
-	durationField := data.NewField("duration", nil, []int64{})
+	durationField := data.NewField("duration", nil, []float64{})
 	tagsField := data.NewField("tags", nil, []json.RawMessage{})
 
 	// Add values to each field for each span
@@ -266,7 +266,7 @@ func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 		operationNameField.Append(cloudtrace.GetSpanOperationName(s))
 		serviceNameField.Append(cloudtrace.GetServiceName(s))
 		startTimeField.Append(s.GetStartTime().AsTime())
-		duration := s.GetEndTime().AsTime().UnixMilli() - s.GetStartTime().AsTime().UnixMilli()
+		duration := float64(s.GetEndTime().AsTime().UnixMicro()-s.GetStartTime().AsTime().UnixMicro()) / 1000
 		durationField.Append(duration)
 	}
 
