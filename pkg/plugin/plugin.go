@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/trace/apiv1/tracepb"
+	"github.com/grafana/grafana-google-sdk-go/pkg/utils"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
@@ -41,7 +42,9 @@ var (
 )
 
 const (
-	privateKeyKey = "privateKey"
+	privateKeyKey     = "privateKey"
+	gceAuthentication = "gce"
+	jwtAuthentication = "jwt"
 )
 
 // config is the fields parsed from the front end
@@ -80,19 +83,30 @@ func NewCloudTraceDatasource(settings backend.DataSourceInstanceSettings) (insta
 		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
 
-	privateKey, ok := settings.DecryptedSecureJSONData[privateKeyKey]
-	if !ok || privateKey == "" {
-		return nil, errMissingCredentials
+	if conf.AuthType == "" {
+		conf.AuthType = jwtAuthentication
 	}
 
-	serviceAccount, err := conf.toServiceAccountJSON(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("create credentials: %w", err)
-	}
+	var client_err error
+	var client *cloudtrace.Client
 
-	client, err := cloudtrace.NewClient(context.TODO(), serviceAccount)
-	if err != nil {
-		return nil, err
+	if conf.AuthType == jwtAuthentication {
+		privateKey, ok := settings.DecryptedSecureJSONData[privateKeyKey]
+		if !ok || privateKey == "" {
+			return nil, errMissingCredentials
+		}
+
+		serviceAccount, err := conf.toServiceAccountJSON(privateKey)
+		if err != nil {
+			return nil, fmt.Errorf("create credentials: %w", err)
+		}
+
+		client, client_err = cloudtrace.NewClient(context.TODO(), serviceAccount)
+	} else {
+		client, client_err = cloudtrace.NewClientWithGCE(context.TODO())
+	}
+	if client_err != nil {
+		return nil, client_err
 	}
 
 	return &CloudTraceDatasource{
@@ -115,37 +129,47 @@ func (d *CloudTraceDatasource) Dispose() {
 	}
 }
 
-// ListProjectsResponse is our response to a call to `/resources/projects`
-type ListProjectsResponse struct {
-	Projects []string `json:"projects"`
-}
-
 // CallResource fetches some resource from GCP using the data source's credentials
 //
 // Currently only projects are fetched, other requests receive a 404
 func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	// log.DefaultLogger.Info("CallResource called")
 
-	// Right now we only support calls to `/projects`
+	var body []byte
+
+	// Right now we only support calls to `gceDefaultProject` and `/projects`
 	resource := req.Path
-	if strings.ToLower(resource) != "projects" {
+
+	if resource == "gceDefaultProject" {
+		proj, err := utils.GCEDefaultProject(ctx, "")
+		if err != nil {
+			log.DefaultLogger.Warn("problem getting GCE default project", "error", err)
+		}
+		body, err = json.Marshal(proj)
+		if err != nil {
+			return sender.Send(&backend.CallResourceResponse{
+				Status: http.StatusInternalServerError,
+				Body:   []byte(`Unable to create response`),
+			})
+		}
+	} else if strings.ToLower(resource) != "projects" {
 		return sender.Send(&backend.CallResourceResponse{
 			Status: http.StatusNotFound,
 			Body:   []byte(`No such path`),
 		})
-	}
+	} else {
+		projects, err := d.client.ListProjects(ctx)
+		if err != nil {
+			log.DefaultLogger.Warn("problem listing projects", "error", err)
+		}
 
-	projects, err := d.client.ListProjects(ctx)
-	if err != nil {
-		log.DefaultLogger.Warn("problem listing projects", "error", err)
-	}
-
-	body, err := json.Marshal(&ListProjectsResponse{Projects: projects})
-	if err != nil {
-		return sender.Send(&backend.CallResourceResponse{
-			Status: http.StatusInternalServerError,
-			Body:   []byte(`Unable to create response`),
-		})
+		body, err = json.Marshal(projects)
+		if err != nil {
+			return sender.Send(&backend.CallResourceResponse{
+				Status: http.StatusInternalServerError,
+				Body:   []byte(`Unable to create response`),
+			})
+		}
 	}
 
 	return sender.Send(&backend.CallResourceResponse{
@@ -367,7 +391,13 @@ func (d *CloudTraceDatasource) CheckHealth(ctx context.Context, req *backend.Che
 	if err := json.Unmarshal(settings.JSONData, &conf); err != nil {
 		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
-
+	if conf.DefaultProject == "" && conf.AuthType == gceAuthentication {
+		proj, err := utils.GCEDefaultProject(ctx, "")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get GCE default project: %w", err)
+		}
+		conf.DefaultProject = proj
+	}
 	if err := d.client.TestConnection(ctx, conf.DefaultProject); err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,

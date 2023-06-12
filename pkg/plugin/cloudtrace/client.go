@@ -74,6 +74,25 @@ func NewClient(ctx context.Context, jsonCreds []byte) (*Client, error) {
 	}, nil
 }
 
+// NewClient creates a new Client using GCE metadata for authentication
+func NewClientWithGCE(ctx context.Context) (*Client, error) {
+	client, err := trace.NewClient(ctx,
+		option.WithUserAgent("googlecloud-trace-datasource"))
+	if err != nil {
+		return nil, err
+	}
+	rClient, err := resourcemanager.NewService(ctx,
+		option.WithUserAgent("googlecloud-trace-datasource"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &Client{
+		tClient: client,
+		rClient: rClient.Projects,
+	}, nil
+}
+
 // Close closes the underlying connection to the GCP API
 func (c *Client) Close() error {
 	return c.tClient.Close()
