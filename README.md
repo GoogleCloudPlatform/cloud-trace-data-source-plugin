@@ -45,7 +45,7 @@ If you host Grafana on a GCE VM, you can also use the [Compute Engine service ac
 4. Provide credentials in a JWT file, either by using the file selector or pasting the contents of the file.
 5. Click "Save & test" to test that traces can be queried from Cloud Trace.
 
-![image info](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/src/img/cloud_trace_explore_view.png?raw=true)
+![image info](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/src/img/cloud_trace_config.png?raw=true)
 
 
 ## Usage
