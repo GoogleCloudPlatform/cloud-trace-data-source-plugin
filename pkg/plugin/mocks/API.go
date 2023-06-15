@@ -21,7 +21,7 @@ import (
 
 	cloudtrace "github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pkg/plugin/cloudtrace"
 
-	cloudtracepb "cloud.google.com/go/trace/apiv1/tracepb"
+	trace "cloud.google.com/go/trace/apiv1/tracepb"
 
 	mock "github.com/stretchr/testify/mock"
 )
@@ -46,15 +46,15 @@ func (_m *API) Close() error {
 }
 
 // ListTraces provides a mock function with given fields: _a0, _a1
-func (_m *API) ListTraces(_a0 context.Context, _a1 *cloudtrace.TracesQuery) ([]*cloudtracepb.Trace, error) {
+func (_m *API) ListTraces(_a0 context.Context, _a1 *cloudtrace.TracesQuery) ([]*trace.Trace, error) {
 	ret := _m.Called(_a0, _a1)
 
-	var r0 []*cloudtracepb.Trace
-	if rf, ok := ret.Get(0).(func(context.Context, *cloudtrace.TracesQuery) []*cloudtracepb.Trace); ok {
+	var r0 []*trace.Trace
+	if rf, ok := ret.Get(0).(func(context.Context, *cloudtrace.TracesQuery) []*trace.Trace); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]*cloudtracepb.Trace)
+			r0 = ret.Get(0).([]*trace.Trace)
 		}
 	}
 
@@ -69,15 +69,15 @@ func (_m *API) ListTraces(_a0 context.Context, _a1 *cloudtrace.TracesQuery) ([]*
 }
 
 // GetTrace provides a mock function with given fields: _a0, _a1
-func (_m *API) GetTrace(_a0 context.Context, _a1 *cloudtrace.TraceQuery) (*cloudtracepb.Trace, error) {
+func (_m *API) GetTrace(_a0 context.Context, _a1 *cloudtrace.TraceQuery) (*trace.Trace, error) {
 	ret := _m.Called(_a0, _a1)
 
-	var r0 *cloudtracepb.Trace
-	if rf, ok := ret.Get(0).(func(context.Context, *cloudtrace.TraceQuery) *cloudtracepb.Trace); ok {
+	var r0 *trace.Trace
+	if rf, ok := ret.Get(0).(func(context.Context, *cloudtrace.TraceQuery) *trace.Trace); ok {
 		r0 = rf(_a0, _a1)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*cloudtracepb.Trace)
+			r0 = ret.Get(0).(*trace.Trace)
 		}
 	}
 
