@@ -19,9 +19,9 @@ package mocks
 import (
 	context "context"
 
-	cloudtrace "github.com/observiq/cloud-trace-grafana-ds/pkg/plugin/cloudtrace"
+	cloudtrace "github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pkg/plugin/cloudtrace"
 
-	cloudtracepb "google.golang.org/genproto/googleapis/devtools/cloudtrace/v1"
+	cloudtracepb "cloud.google.com/go/trace/apiv1/tracepb"
 
 	mock "github.com/stretchr/testify/mock"
 )

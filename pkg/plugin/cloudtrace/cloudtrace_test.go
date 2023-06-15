@@ -20,7 +20,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/trace/apiv1/tracepb"
-	"github.com/observiq/cloud-trace-grafana-ds/pkg/plugin/cloudtrace"
+	"github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pkg/plugin/cloudtrace"
 	"github.com/stretchr/testify/require"
 )
 

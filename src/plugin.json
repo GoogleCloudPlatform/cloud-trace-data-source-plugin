@@ -27,11 +27,11 @@
     "links": [
       {
         "name": "Website",
-        "url": "https://github.com/observiq/googlecloud-trace-datasource"
+        "url": "https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin"
       },
       {
         "name": "License",
-        "url": "https://github.com/observiq/googlecloud-trace-datasource/blob/main/LICENSE"
+        "url": "https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/LICENSE"
       }
     ],
     "screenshots": [],

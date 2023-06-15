@@ -25,12 +25,12 @@ import (
 	"time"
 
 	"cloud.google.com/go/trace/apiv1/tracepb"
+	cloudtrace "github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pkg/plugin/cloudtrace"
 	"github.com/grafana/grafana-google-sdk-go/pkg/utils"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
-	cloudtrace "github.com/observiq/cloud-trace-grafana-ds/pkg/plugin/cloudtrace"
 )
 
 // Make sure CloudTraceDatasource implements required interfaces

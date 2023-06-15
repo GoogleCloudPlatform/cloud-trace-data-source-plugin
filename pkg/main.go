@@ -17,9 +17,9 @@ package main
 import (
 	"os"
 
+	"github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pkg/plugin"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/datasource"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
-	"github.com/observiq/cloud-trace-grafana-ds/pkg/plugin"
 )
 
 func main() {

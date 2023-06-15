@@ -29,7 +29,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	cloudtracepb "google.golang.org/genproto/googleapis/devtools/cloudtrace/v1"
+	cloudtracepb "cloud.google.com/go/trace/apiv1/tracepb"
 )
 
 const testConnectionTimeWindow = time.Hour * 24 * 30 // 30 days
