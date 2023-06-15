@@ -4,8 +4,10 @@
 The Google Cloud Trace Data Source is a backend data source plugin for Grafana,
 which allows users to query and visualize their Google Cloud traces and spans in Grafana.
 
+![image info](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/src/img/cloud_trace_explore_view.png?raw=true)
+
 ## Supported Grafana Version
-8.1.x+
+9.0.x+
 
 ## Setup
 
@@ -28,11 +30,13 @@ You can follow the steps to enable it:
 3. Click **Create Credentials** then click **Service account**
 4. On the Create service account page, enter the Service account details
 5. On the `Create service account` page, fill in the `Service account details` and then click `Create and Continue`
-6. On the `Grant this service account access to project` section, select the `Cloud Trace User` role under `Cloud Trace` to the service account. Click `Done`
+6. On the `Grant this service account access to project` section, add the `Cloud Trace User` role under `Cloud Trace` to the service account. Click `Done`
 7. In the next step, click the service account you just created. Under the `Keys` tab and select `Add key` and `Create new key`
 8. Choose key type `JSON` and click `Create`. A JSON key file will be created and downloaded to your computer
 
-If you want to access logs in multiple cloud projects, you need to ensure the service account has permission to read logs from all of them.
+If you want to access traces in multiple cloud projects, you need to ensure the service account has permission to read logs from all of them.
+
+If you host Grafana on a GCE VM, you can also use the [Compute Engine service account](https://cloud.google.com/compute/docs/access/service-accounts#serviceaccount). You need to make sure the service account has sufficient permissions to access the traces in all projects.
 
 ### Grafana Configuration
 1. With Grafana restarted, navigate to `Configuration -> Data sources` (or the route `/datasources`)
@@ -40,6 +44,9 @@ If you want to access logs in multiple cloud projects, you need to ensure the se
 3. Select "Google Cloud Trace"
 4. Provide credentials in a JWT file, either by using the file selector or pasting the contents of the file.
 5. Click "Save & test" to test that traces can be queried from Cloud Trace.
+
+![image info](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/src/img/cloud_trace_explore_view.png?raw=true)
+
 
 ## Usage
 
