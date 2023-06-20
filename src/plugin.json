@@ -34,12 +34,16 @@
         "url": "https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/LICENSE"
       }
     ],
-    "screenshots": [],
+    "screenshots": [
+      {"name": "cloud_trace_config", "path": "img/cloud_trace_config.png"},
+      {"name": "cloud_trace_explore_view", "path": "img/cloud_trace_explore_view.png"},
+      {"name": "cloud_logging_dashboard_view", "path": "img/cloud_logging_dashboard_view.png"}
+    ],
     "version": "%VERSION%",
     "updated": "%TODAY%"
   },
   "dependencies": {
-    "grafanaDependency": ">=8.1.0",
+    "grafanaDependency": ">=8.5.0",
     "plugins": []
   }
 }
