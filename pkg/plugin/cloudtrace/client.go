@@ -24,7 +24,9 @@ import (
 	trace "cloud.google.com/go/trace/apiv1"
 	"cloud.google.com/go/trace/apiv1/tracepb"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
+	"golang.org/x/oauth2"
 	resourcemanager "google.golang.org/api/cloudresourcemanager/v1"
+	"google.golang.org/api/impersonate"
 	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -82,6 +84,42 @@ func NewClientWithGCE(ctx context.Context) (*Client, error) {
 		return nil, err
 	}
 	rClient, err := resourcemanager.NewService(ctx,
+		option.WithUserAgent("googlecloud-trace-datasource"))
+	if err != nil {
+		return nil, err
+	}
+
+	return &Client{
+		tClient: client,
+		rClient: rClient.Projects,
+	}, nil
+}
+
+// NewClient creates a new Clients using service account impersonation
+func NewClientWithImpersonation(ctx context.Context, jsonCreds []byte, impersonateSA string) (*Client, error) {
+	var ts oauth2.TokenSource
+	var err error
+	if jsonCreds == nil {
+		ts, err = impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
+			TargetPrincipal: impersonateSA,
+			Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
+		})
+	} else {
+		ts, err = impersonate.CredentialsTokenSource(ctx, impersonate.CredentialsConfig{
+			TargetPrincipal: impersonateSA,
+			Scopes:          []string{"https://www.googleapis.com/auth/cloud-platform"},
+		}, option.WithCredentialsJSON(jsonCreds))
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := trace.NewClient(ctx, option.WithTokenSource(ts),
+		option.WithUserAgent("googlecloud-trace-datasource"))
+	if err != nil {
+		return nil, err
+	}
+	rClient, err := resourcemanager.NewService(ctx, option.WithTokenSource(ts),
 		option.WithUserAgent("googlecloud-trace-datasource"))
 	if err != nil {
 		return nil, err

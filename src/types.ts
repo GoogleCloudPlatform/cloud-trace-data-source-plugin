@@ -27,6 +27,8 @@ export const authTypes: Array<SelectableValue<string>> = [
  */
 export interface DataSourceOptionsExt extends DataSourceOptions {
   gceDefaultProject?: string;
+  serviceAccountToImpersonate?: string;
+  usingImpersonation?: boolean;
 }
 
 /**
