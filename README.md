@@ -75,6 +75,9 @@ by this plugin needs cloud trace user and project list permissions.
     After making a `Filter` query, a table will be displayed with all of the matching traces
     (Example: `http.scheme:http http.server_name:testserver MinLatency:500ms`)
 
+### Supported variables
+The plugin currently supports variables for the GCP projects and a trace id. The project variable is a query one, and the trace id is a text or custom one.
+
 ## Licenses
 Cloud Trace Logo (`src/img/logo.svg`) is from Google Cloud's [Official icons and sample diagrams](https://cloud.google.com/icons)
 
