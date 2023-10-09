@@ -38,6 +38,10 @@ If you want to access traces in multiple cloud projects, you need to ensure the 
 
 If you host Grafana on a GCE VM, you can also use the [Compute Engine service account](https://cloud.google.com/compute/docs/access/service-accounts#serviceaccount). You need to make sure the service account has sufficient permissions to access the traces in all projects.
 
+### Service account impersonation
+You can also configure the plugin to use [service account impersonation](https://cloud.google.com/iam/docs/service-account-impersonation).
+You need to ensure the service account used by this plugin has the `iam.serviceAccounts.getAccessToken` permission. This permission is in roles like the [Service Account Token Creator role](https://cloud.google.com/iam/docs/understanding-roles#iam.serviceAccountTokenCreator) (roles/iam.serviceAccountTokenCreator). Also, the service account impersonated
+by this plugin needs cloud trace user and project list permissions.
 ### Grafana Configuration
 1. With Grafana restarted, navigate to `Configuration -> Data sources` (or the route `/datasources`)
 2. Click "Add data source"
@@ -70,6 +74,9 @@ If you host Grafana on a GCE VM, you can also use the [Compute Engine service ac
 
     After making a `Filter` query, a table will be displayed with all of the matching traces
     (Example: `http.scheme:http http.server_name:testserver MinLatency:500ms`)
+
+### Supported variables
+The plugin currently supports variables for the GCP projects and a trace id. The project variable is a query one, and the trace id is a text or custom one.
 
 ## Licenses
 Cloud Trace Logo (`src/img/logo.svg`) is from Google Cloud's [Official icons and sample diagrams](https://cloud.google.com/icons)

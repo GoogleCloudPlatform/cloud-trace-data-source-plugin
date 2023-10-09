@@ -27,6 +27,8 @@ export const authTypes: Array<SelectableValue<string>> = [
  */
 export interface DataSourceOptionsExt extends DataSourceOptions {
   gceDefaultProject?: string;
+  serviceAccountToImpersonate?: string;
+  usingImpersonation?: boolean;
 }
 
 /**
@@ -49,3 +51,29 @@ export const defaultQuery: Partial<Query> = {
  * These are options configured for each DataSource instance.
  */
 export type CloudTraceOptions = DataSourceOptionsExt;
+
+/**
+ * Enum for supported variables
+ */
+export enum TraceVariables {
+    Projects = 'projects',
+}
+
+/**
+ * Supported types for template variables
+ */
+export interface CloudTraceVariableQuery extends DataQuery {
+    selectedQueryType: string;
+    projectId: string;
+}
+
+/**
+ * Scope data for template variables
+ */
+export interface VariableScopeData {
+    selectedQueryType: string;
+    projects: SelectableValue[];
+    projectId: string;
+    loading: boolean;
+}
+

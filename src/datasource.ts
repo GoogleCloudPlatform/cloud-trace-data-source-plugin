@@ -19,6 +19,8 @@ import { DataSourceWithBackend, getTemplateSrv, TemplateSrv } from '@grafana/run
 import { map } from 'rxjs/operators';
 import { Observable } from 'rxjs';
 import { CloudTraceOptions, Query } from './types';
+import { CloudTraceVariableSupport } from './variables';
+
 
 export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> {
   authenticationType: string;
@@ -29,6 +31,7 @@ export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> 
   ) {
     super(instanceSettings);
     this.authenticationType = instanceSettings.jsonData.authenticationType || 'jwt';
+    this.variables = new CloudTraceVariableSupport(this);
   }
 
   /**
@@ -71,6 +74,8 @@ export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> 
     return {
       ...query,
       queryText: this.templateSrv.replace(query.queryText, scopedVars),
+      projectId: this.templateSrv.replace(query.projectId, scopedVars),
+      traceId: this.templateSrv.replace(query.traceId, scopedVars),
     };
   }
 
