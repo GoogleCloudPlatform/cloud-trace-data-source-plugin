@@ -7,7 +7,7 @@ jobs:
   build_and_test:
     runs-on: ubuntu-latest
     env:
-      GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }} # Requires a Grafana API key from Grafana.com.
+      GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }} # Requires a Grafana policy token from Grafana.com.
     steps:
       - uses: actions/checkout@v3
 
