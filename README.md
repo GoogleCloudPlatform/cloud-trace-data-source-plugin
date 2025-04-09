@@ -51,6 +51,8 @@ by this plugin needs cloud trace user and project list permissions.
 
 ![image info](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/src/img/cloud_trace_config.png?raw=true)
 
+### Access Token
+You can also set up the datasource-syncer to rotate an access token for you. 
 
 ## Usage
 
