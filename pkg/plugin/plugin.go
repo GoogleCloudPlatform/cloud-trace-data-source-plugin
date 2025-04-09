@@ -82,7 +82,7 @@ type serviceAccountJSON struct {
 }
 
 // NewCloudTraceDatasource creates a new datasource instance.
-func NewCloudTraceDatasource(settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+func NewCloudTraceDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	var conf config
 	if err := json.Unmarshal(settings.JSONData, &conf); err != nil {
 		return nil, fmt.Errorf("unmarshal: %w", err)
