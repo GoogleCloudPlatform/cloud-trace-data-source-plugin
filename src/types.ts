@@ -15,11 +15,20 @@
  */
 
 import { DataQuery, SelectableValue } from '@grafana/data';
-import { DataSourceOptions, GoogleAuthType } from '@grafana/google-sdk';
+import {
+  DataSourceOptions,
+  GoogleAuthType,
+  DataSourceSecureJsonData as BaseDataSourceSecureJsonData,
+} from '@grafana/google-sdk';
+
+export interface DataSourceSecureJsonData extends BaseDataSourceSecureJsonData {
+  accessToken?: string;
+}
 
 export const authTypes: Array<SelectableValue<string>> = [
   { label: 'Google JWT File', value: GoogleAuthType.JWT },
   { label: 'GCE Default Service Account', value: GoogleAuthType.GCE },
+  { label: 'Access Token', value: 'accessToken' },
 ];
 
 /**
@@ -38,6 +47,7 @@ export interface Query extends DataQuery {
   queryText?: string;
   traceId?: string;
   projectId: string;
+  queryType?: string;
 }
 
 /**
@@ -56,24 +66,23 @@ export type CloudTraceOptions = DataSourceOptionsExt;
  * Enum for supported variables
  */
 export enum TraceVariables {
-    Projects = 'projects',
+  Projects = 'projects',
 }
 
 /**
  * Supported types for template variables
  */
 export interface CloudTraceVariableQuery extends DataQuery {
-    selectedQueryType: string;
-    projectId: string;
+  selectedQueryType: string;
+  projectId: string;
 }
 
 /**
  * Scope data for template variables
  */
 export interface VariableScopeData {
-    selectedQueryType: string;
-    projects: SelectableValue[];
-    projectId: string;
-    loading: boolean;
+  selectedQueryType: string;
+  projects: SelectableValue[];
+  projectId: string;
+  loading: boolean;
 }
-

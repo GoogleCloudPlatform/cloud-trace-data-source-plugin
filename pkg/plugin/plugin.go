@@ -92,6 +92,11 @@ func NewCloudTraceDatasource(ctx context.Context, settings backend.DataSourceIns
 		conf.AuthType = jwtAuthentication
 	}
 
+	// Check if access token is configured and switch auth type if present
+	if accessToken, ok := settings.DecryptedSecureJSONData[accessTokenKey]; ok && accessToken != "" {
+		conf.AuthType = accessTokenAuthentication
+	}
+
 	var client_err error
 	var client *cloudtrace.Client
 
