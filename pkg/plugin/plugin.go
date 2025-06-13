@@ -39,12 +39,15 @@ var (
 	_                     backend.CheckHealthHandler    = (*CloudTraceDatasource)(nil)
 	_                     instancemgmt.InstanceDisposer = (*CloudTraceDatasource)(nil)
 	errMissingCredentials                               = errors.New("missing credentials")
+	errMissingAccessToken                               = errors.New("missing access token")
 )
 
 const (
-	privateKeyKey     = "privateKey"
-	gceAuthentication = "gce"
-	jwtAuthentication = "jwt"
+	privateKeyKey             = "privateKey"
+	gceAuthentication         = "gce"
+	jwtAuthentication         = "jwt"
+	accessTokenAuthentication = "accessToken"
+	accessTokenKey            = "accessToken"
 )
 
 // config is the fields parsed from the front end
@@ -79,7 +82,7 @@ type serviceAccountJSON struct {
 }
 
 // NewCloudTraceDatasource creates a new datasource instance.
-func NewCloudTraceDatasource(settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
+func NewCloudTraceDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	var conf config
 	if err := json.Unmarshal(settings.JSONData, &conf); err != nil {
 		return nil, fmt.Errorf("unmarshal: %w", err)
@@ -89,10 +92,16 @@ func NewCloudTraceDatasource(settings backend.DataSourceInstanceSettings) (insta
 		conf.AuthType = jwtAuthentication
 	}
 
+	// Check if access token is configured and switch auth type if present
+	if accessToken, ok := settings.DecryptedSecureJSONData[accessTokenKey]; ok && accessToken != "" {
+		conf.AuthType = accessTokenAuthentication
+	}
+
 	var client_err error
 	var client *cloudtrace.Client
 
-	if conf.AuthType == jwtAuthentication {
+	switch conf.AuthType {
+	case jwtAuthentication:
 		privateKey, ok := settings.DecryptedSecureJSONData[privateKeyKey]
 		if !ok || privateKey == "" {
 			return nil, errMissingCredentials
@@ -107,15 +116,24 @@ func NewCloudTraceDatasource(settings backend.DataSourceInstanceSettings) (insta
 		} else {
 			client, client_err = cloudtrace.NewClient(context.TODO(), serviceAccount)
 		}
-	} else {
+	case gceAuthentication:
 		if conf.UsingImpersonation {
 			client, client_err = cloudtrace.NewClientWithImpersonation(context.TODO(), nil, conf.ServiceAccountToImpersonate)
 		} else {
 			client, client_err = cloudtrace.NewClientWithGCE(context.TODO())
 		}
+	case accessTokenAuthentication:
+		accessToken, ok := settings.DecryptedSecureJSONData[accessTokenKey]
+		if !ok || accessToken == "" {
+			return nil, errMissingAccessToken
+		}
+		client, client_err = cloudtrace.NewClientWithAccessToken(context.TODO(), accessToken)
+	default:
+		return nil, fmt.Errorf("unknown authentication type: %s", conf.AuthType)
 	}
+
 	if client_err != nil {
-		return nil, client_err
+		return nil, fmt.Errorf("create client: %w", client_err)
 	}
 
 	return &CloudTraceDatasource{
