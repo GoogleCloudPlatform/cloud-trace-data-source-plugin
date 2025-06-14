@@ -38,6 +38,8 @@ If you want to access traces in multiple cloud projects, you need to ensure the 
 
 If you host Grafana on a GCE VM, you can also use the [Compute Engine service account](https://cloud.google.com/compute/docs/access/service-accounts#serviceaccount). You need to make sure the service account has sufficient permissions to access the traces in all projects.
 
+Similar to [Prometheus data sources on Google Cloud](https://cloud.google.com/stackdriver/docs/managed-prometheus/query#use-serverless), you can also configure a scheduled job to use an OAuth2 access token to view the traces. Please follow the steps in the [data source syncer README](https://github.com/GoogleCloudPlatform/blob/main/datasource-syncer/README.md) to configure it.
+
 ### Service account impersonation
 You can also configure the plugin to use [service account impersonation](https://cloud.google.com/iam/docs/service-account-impersonation).
 You need to ensure the service account used by this plugin has the `iam.serviceAccounts.getAccessToken` permission. This permission is in roles like the [Service Account Token Creator role](https://cloud.google.com/iam/docs/understanding-roles#iam.serviceAccountTokenCreator) (roles/iam.serviceAccountTokenCreator). Also, the service account impersonated
@@ -50,9 +52,6 @@ by this plugin needs cloud trace user and project list permissions.
 5. Click "Save & test" to test that traces can be queried from Cloud Trace.
 
 ![image info](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/src/img/cloud_trace_config.png?raw=true)
-
-### Access Token
-You can also set up the datasource-syncer to rotate an access token for you. 
 
 ## Usage
 
