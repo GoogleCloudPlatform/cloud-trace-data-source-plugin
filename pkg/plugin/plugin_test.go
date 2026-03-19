@@ -407,3 +407,51 @@ func TestCallResource_ProjectsWithQuery(t *testing.T) {
 	client.AssertExpectations(t)
 }
 
+func TestCallResource_ProjectsError(t *testing.T) {
+	client := mocks.NewAPI(t)
+	client.On("ListProjects", mock.Anything, "").Return(nil, errors.New("permission denied"))
+
+	ds := &CloudTraceDatasource{
+		client: client,
+	}
+
+	sender := &responseSender{}
+	err := ds.CallResource(context.Background(), &backend.CallResourceRequest{
+		Path: "projects",
+		URL:  "projects",
+	}, sender)
+
+	require.NoError(t, err)
+	require.NotNil(t, sender.resp)
+	require.Equal(t, 502, sender.resp.Status)
+
+	var body map[string]string
+	err = json.Unmarshal(sender.resp.Body, &body)
+	require.NoError(t, err)
+	require.Equal(t, "permission denied", body["message"])
+	client.AssertExpectations(t)
+}
+
+func TestCallResource_NotFound(t *testing.T) {
+	client := mocks.NewAPI(t)
+
+	ds := &CloudTraceDatasource{
+		client: client,
+	}
+
+	sender := &responseSender{}
+	err := ds.CallResource(context.Background(), &backend.CallResourceRequest{
+		Path: "unknown",
+		URL:  "unknown",
+	}, sender)
+
+	require.NoError(t, err)
+	require.NotNil(t, sender.resp)
+	require.Equal(t, 404, sender.resp.Status)
+
+	var body map[string]string
+	err = json.Unmarshal(sender.resp.Body, &body)
+	require.NoError(t, err)
+	require.Equal(t, "No such path", body["message"])
+}
+

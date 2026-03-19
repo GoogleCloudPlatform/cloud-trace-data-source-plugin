@@ -15,9 +15,9 @@
  */
 
 import { DataFrame, DataQueryRequest, DataQueryResponse, DataSourceInstanceSettings, ScopedVars } from '@grafana/data';
-import { DataSourceWithBackend, getTemplateSrv, TemplateSrv } from '@grafana/runtime';
+import { DataSourceWithBackend, getBackendSrv, getTemplateSrv, TemplateSrv } from '@grafana/runtime';
 import { map } from 'rxjs/operators';
-import { Observable } from 'rxjs';
+import { lastValueFrom, Observable } from 'rxjs';
 import { CloudTraceOptions, Query } from './types';
 import { CloudTraceVariableSupport } from './variables';
 
@@ -57,6 +57,22 @@ export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> 
           : text,
       };
     }
+  }
+
+  /**
+   * Override getResource to suppress Grafana's automatic error toast popups.
+   * The plugin's QueryEditor already shows errors inline via its own Alert,
+   * so the default toasts cause every error to appear twice.
+   */
+  async getResource(path: string, params?: Record<string, unknown>): Promise<any> {
+    return lastValueFrom(
+      getBackendSrv().fetch({
+        url: `/api/datasources/uid/${this.uid}/resources/${path}`,
+        params,
+        method: 'GET',
+        showErrorAlert: false,
+      })
+    ).then((response) => response.data);
   }
 
   /**

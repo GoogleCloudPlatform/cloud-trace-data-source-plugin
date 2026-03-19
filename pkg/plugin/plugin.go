@@ -175,6 +175,14 @@ func (d *CloudTraceDatasource) Dispose() {
 	}
 }
 
+// jsonErrorBody returns a JSON-encoded body with a "message" field so that
+// Grafana's frontend can surface the actual error text instead of the generic
+// "Unexpected error" fallback.
+func jsonErrorBody(msg string) []byte {
+	b, _ := json.Marshal(map[string]string{"message": msg})
+	return b
+}
+
 // CallResource fetches some resource from GCP using the data source's credentials
 //
 // Currently only projects are fetched, other requests receive a 404
@@ -195,7 +203,7 @@ func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.Ca
 		if err != nil {
 			return sender.Send(&backend.CallResourceResponse{
 				Status: http.StatusBadGateway,
-				Body:   []byte(sanitizeErrorMessage(err)),
+				Body:   jsonErrorBody(sanitizeErrorMessage(err)),
 			})
 		}
 		client = oauthClient
@@ -213,27 +221,27 @@ func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.Ca
 			log.DefaultLogger.Error("problem getting GCE default project", "error", err)
 			return sender.Send(&backend.CallResourceResponse{
 				Status: http.StatusBadGateway,
-				Body:   []byte(sanitizeErrorMessage(err)),
+				Body:   jsonErrorBody(sanitizeErrorMessage(err)),
 			})
 		}
 		body, err = json.Marshal(proj)
 		if err != nil {
 			return sender.Send(&backend.CallResourceResponse{
 				Status: http.StatusInternalServerError,
-				Body:   []byte(`Unable to create response`),
+				Body:   jsonErrorBody("Unable to create response"),
 			})
 		}
 	} else if strings.ToLower(resource) != "projects" {
 		return sender.Send(&backend.CallResourceResponse{
 			Status: http.StatusNotFound,
-			Body:   []byte(`No such path`),
+			Body:   jsonErrorBody("No such path"),
 		})
 	} else {
 		reqUrl, err := url.Parse(req.URL)
 		if err != nil {
 			return sender.Send(&backend.CallResourceResponse{
 				Status: http.StatusBadRequest,
-				Body:   []byte(`Invalid request URL`),
+				Body:   jsonErrorBody("Invalid request URL"),
 			})
 		}
 		searchQuery := reqUrl.Query().Get("query")
@@ -243,7 +251,7 @@ func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.Ca
 			log.DefaultLogger.Error("problem listing projects", "error", err)
 			return sender.Send(&backend.CallResourceResponse{
 				Status: http.StatusBadGateway,
-				Body:   []byte(sanitizeErrorMessage(err)),
+				Body:   jsonErrorBody(sanitizeErrorMessage(err)),
 			})
 		}
 
@@ -251,7 +259,7 @@ func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.Ca
 		if err != nil {
 			return sender.Send(&backend.CallResourceResponse{
 				Status: http.StatusInternalServerError,
-				Body:   []byte(`Unable to create response`),
+				Body:   jsonErrorBody("Unable to create response"),
 			})
 		}
 	}

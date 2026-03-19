@@ -1,4 +1,10 @@
 # Changelog
+## 1.3.2 (2026-03-18)
+* Fix project dropdown search failing with "contains global restriction" error
+* Return error responses as JSON so Grafana displays actual error messages instead of generic "Unexpected error"
+* Suppress duplicate error toast notifications — errors now only appear in the inline alert
+* Fix inline error alert showing raw JSON instead of the error message text
+
 ## 1.3.1 (2026-03-15)
 * Improve project dropdown performance with AsyncSelect and server-side search
 * Cache default project list to reduce redundant backend requests
