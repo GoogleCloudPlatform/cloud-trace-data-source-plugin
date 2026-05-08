@@ -52,7 +52,7 @@ export class ConfigEditor extends PureComponent<Props> {
           ...options,
           jsonData: {
             ...options.jsonData,
-            authenticationType: 'oauthPassthrough' as GoogleAuthType,
+            authenticationType: 'oauthPassthrough',
             oauthPassThru: true,
           },
         });
@@ -61,7 +61,7 @@ export class ConfigEditor extends PureComponent<Props> {
           ...options,
           jsonData: {
             ...options.jsonData,
-            authenticationType: (e.value as GoogleAuthType) || GoogleAuthType.JWT,
+            authenticationType: e.value || GoogleAuthType.JWT,
             oauthPassThru: false,
           },
           secureJsonData: {
@@ -120,7 +120,7 @@ export class ConfigEditor extends PureComponent<Props> {
             </div>
           </div>
         ) : null}
-        {options.jsonData.authenticationType === ('accessToken' as GoogleAuthType) ? (
+        {options.jsonData.authenticationType === 'accessToken' ? (
           <>
             <Field
               label="Access Token"

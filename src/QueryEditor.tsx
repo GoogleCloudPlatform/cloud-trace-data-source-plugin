@@ -16,7 +16,7 @@
 
 import React, { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { QueryEditorProps, SelectableValue } from '@grafana/data';
-import { Alert, InlineField, InlineFieldRow, AsyncSelect, Input, LinkButton, RadioButtonGroup, TextArea, Tooltip } from '@grafana/ui';
+import { Alert, InlineField, InlineFieldRow, Input, LinkButton, RadioButtonGroup, Select, TextArea, Tooltip } from '@grafana/ui';
 import { DataSource } from './datasource';
 import { CloudTraceOptions, defaultQuery, Query } from './types';
 
@@ -42,7 +42,10 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
   };
 
   const [fetchError, setFetchError] = useState<string | undefined>();
-  const requestIdRef = useRef(0);
+
+  // Keep a ref to the latest query so async callbacks avoid stale closures
+  const queryRef = useRef(query);
+  queryRef.current = query;
 
   /**
    * Sanitize fetch errors — Grafana's backendSrv may include raw HTML bodies
@@ -62,64 +65,167 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
     return text;
   };
 
-  const loadProjects = useCallback((inputValue: string): Promise<Array<SelectableValue<string>>> => {
-    const thisRequestId = ++requestIdRef.current;
-    return datasource.getFilteredProjects(inputValue || undefined).then(res => {
-      if (thisRequestId === requestIdRef.current) {
-        setFetchError(undefined);
+  // Initialization effect: validates the carried-over project against the
+  // datasource's actual filtered project list. The list is the source of
+  // truth; the regex filter alone is insufficient because "no filter" passes
+  // everything, so a stale projectId from a different datasource would slip
+  // through. When the project is invalid, reseat to the default (or first
+  // available) and auto-rerun so the user sees correct traces immediately.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      const latestQuery = queryRef.current;
+      const needsQueryText = latestQuery.queryText == null && defaultQuery.queryText;
+      const currentProjectId = latestQuery.projectId;
+
+      if (currentProjectId && currentProjectId.startsWith('$')) {
+        if (!cancelled && needsQueryText) {
+          onChange({ ...latestQuery, queryText: defaultQuery.queryText });
+        }
+        return;
       }
-      return res.map(project => ({
-        label: project,
-        value: project,
-      }));
-    }).catch(err => {
-      if (thisRequestId === requestIdRef.current) {
-        setFetchError(sanitizeFetchError(err));
+
+      const defaultProject = await datasource.getDefaultProject();
+      if (cancelled) { return; }
+
+      let cachedList: string[] | null = null;
+      let isValid = false;
+
+      if (!currentProjectId) {
+        isValid = false;
+      } else if (datasource.filterProjects([currentProjectId]).length === 0) {
+        isValid = false;
+      } else {
+        try {
+          cachedList = await datasource.getFilteredProjects();
+          if (cancelled) { return; }
+          isValid = cachedList.includes(currentProjectId);
+        } catch {
+          // Transient API error — assume valid so we don't reset a saved
+          // project on a flaky network. The eventual query will surface
+          // any real access error.
+          isValid = true;
+        }
       }
-      return [];
-    });
+
+      if (isValid) {
+        if (!cancelled && needsQueryText) {
+          onChange({ ...latestQuery, queryText: defaultQuery.queryText });
+        }
+        return;
+      }
+
+      // Pick a replacement project.
+      let newProjectId = '';
+      if (defaultProject && datasource.filterProjects([defaultProject]).length > 0) {
+        newProjectId = defaultProject;
+      } else {
+        let list = cachedList;
+        if (list === null) {
+          try {
+            list = await datasource.getFilteredProjects();
+            if (cancelled) { return; }
+          } catch {
+            list = null;
+          }
+        }
+        if (list && list.length > 0) {
+          newProjectId = list[0];
+        }
+      }
+
+      if (cancelled) { return; }
+      const nextQuery: Query = { ...latestQuery, projectId: newProjectId };
+      if (needsQueryText) {
+        nextQuery.queryText = defaultQuery.queryText;
+      }
+      onChange(nextQuery);
+      if (newProjectId) {
+        onRunQuery();
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [datasource]);
 
+  // Project list state, tagged with the DS uid it was loaded for. The uid tag
+  // lets the picker's `options` derivation (`projectsForCurrentDs` below)
+  // return [] whenever the loaded data doesn't belong to the current DS —
+  // preventing react-select from auto-selecting/displaying a stale option
+  // from the previous datasource while the new DS's load is in flight.
+  const [projectsState, setProjectsState] = useState<{
+    uid: string | null;
+    list: Array<SelectableValue<string>>;
+  }>({ uid: null, list: [] });
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout>>();
+  // Mutable mirror of the current datasource uid. Used by stale-response
+  // guards: setTimeout callbacks close over the OLD datasource object, so
+  // comparing `searchDsUid` against `datasource.uid` from the same closure
+  // would always be equal. The ref is mutated on every render, so it always
+  // reflects the latest uid regardless of which closure is reading it.
+  const currentDsUidRef = useRef(datasource.uid);
+  currentDsUidRef.current = datasource.uid;
+  const projectsForCurrentDs = projectsState.uid === datasource.uid
+    ? projectsState.list
+    : [];
 
-  // Apply defaults if needed — use onChange so they are persisted in the panel config
   useEffect(() => {
-    const needsQueryText = query.queryText == null && defaultQuery.queryText;
-    const needsProjectId = !query.projectId;
-    const projectFailsFilter = Boolean(query.projectId &&
-      !query.projectId.startsWith('$') &&
-      datasource.filterProjects([query.projectId]).length === 0);
-
-    if (!needsQueryText && !needsProjectId && !projectFailsFilter) {
-      return;
-    }
-
-    if (needsProjectId || projectFailsFilter) {
-      datasource.getDefaultProject().then((project) => {
-        const nextQuery = { ...query };
-        let hasChanges = false;
-
-        if (needsQueryText) {
-          nextQuery.queryText = defaultQuery.queryText;
-          hasChanges = true;
-        }
-
-        if (needsProjectId && project && datasource.filterProjects([project]).length > 0) {
-          nextQuery.projectId = project;
-          hasChanges = true;
-        } else if (projectFailsFilter) {
-          // Explicit fallback: clear project ID if it doesn't pass the filter
-          nextQuery.projectId = '';
-          hasChanges = true;
-        }
-
-        if (hasChanges) {
-          onChange(nextQuery);
-        }
+    let cancelled = false;
+    const loadingForUid = datasource.uid;
+    setProjectsLoading(true);
+    datasource.getFilteredProjects()
+      .then(res => {
+        if (cancelled) { return; }
+        setProjectsState({
+          uid: loadingForUid,
+          list: res.map(project => ({ label: project, value: project })),
+        });
+        setFetchError(undefined);
+      })
+      .catch(err => {
+        if (cancelled) { return; }
+        setProjectsState({ uid: loadingForUid, list: [] });
+        setFetchError(sanitizeFetchError(err));
+      })
+      .finally(() => {
+        if (!cancelled) { setProjectsLoading(false); }
       });
-    } else if (needsQueryText) {
-      onChange({ ...query, queryText: defaultQuery.queryText });
-    }
-  }, [query, datasource, onChange]);
+    return () => {
+      cancelled = true;
+      if (searchTimer.current) { clearTimeout(searchTimer.current); }
+    };
+  }, [datasource]);
+
+  const onProjectSearchChange = useCallback((value: string) => {
+    if (searchTimer.current) { clearTimeout(searchTimer.current); }
+    const searchDsUid = datasource.uid;
+    setProjectsLoading(true);
+    searchTimer.current = setTimeout(() => {
+      datasource.getFilteredProjects(value || undefined)
+        .then(res => {
+          // Discard the response if the datasource changed during the debounce
+          // or in-flight fetch. Compare against the ref (mutated each render)
+          // rather than `datasource.uid`, which is captured in the same stale
+          // closure as `searchDsUid` and would always compare equal.
+          if (searchDsUid !== currentDsUidRef.current) { return; }
+          setProjectsState({
+            uid: searchDsUid,
+            list: res.map(project => ({ label: project, value: project })),
+          });
+          setFetchError(undefined);
+        })
+        .catch(err => {
+          if (searchDsUid !== currentDsUidRef.current) { return; }
+          setFetchError(sanitizeFetchError(err));
+        })
+        .finally(() => {
+          if (searchDsUid === currentDsUidRef.current) { setProjectsLoading(false); }
+        });
+    }, 300);
+  }, [datasource]);
 
   /**
    * Keep an up-to-date URI that links to the equivalent query in the GCP console
@@ -241,7 +347,8 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
     <>
       <InlineFieldRow>
         <InlineField label='Project ID'>
-          <AsyncSelect
+          <Select
+            key={datasource.uid}
             width={30}
             allowCustomValue
             formatCreateLabel={(v) => `Use project: ${v}`}
@@ -251,8 +358,18 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
               projectId: e.value!,
               refId: query.refId,
             })}
-            loadOptions={loadProjects}
-            defaultOptions
+            options={projectsForCurrentDs}
+            isLoading={projectsLoading}
+            onInputChange={onProjectSearchChange}
+            filterOption={() => true}
+            // Pass value as a self-contained literal — do NOT derive it by
+            // looking up query.projectId in the options list. react-select's
+            // internal `cleanValue(value, options)` reconciliation lags under
+            // React 18 concurrent rendering, which would make the picker
+            // visually stuck on stale data on DS switch (only "fixed" by
+            // opening DevTools, which forces a paint flush).
+            // The init effect keeps query.projectId valid; the picker just
+            // displays whatever it says. See react-select#4936.
             value={query.projectId ? { label: query.projectId, value: query.projectId } : undefined}
             placeholder="Select Project"
             inputId={`${query.refId}-project`}

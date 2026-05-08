@@ -1,4 +1,11 @@
 # Changelog
+## 1.3.4 (2026-05-08)
+* Upgrade @grafana/google-sdk from 0.0.3 to 0.3.5 to fix ConnectionConfig mutating React props ([#44](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/issues/44))
+* Upgrade @grafana/data, @grafana/runtime, @grafana/ui to ^11.0.0
+* Raise minimum supported Grafana version to 11.2.0
+* Update @types/react from ^17.0.2 to ^18.2.0 to match React 18 runtime
+* Fix stale project ID persisting in query editor when switching between datasources
+
 ## 1.3.3 (2026-04-05)
 * Add Project List Filter to restrict which projects appear in dropdowns using regex patterns
 * Fix race condition in variable query where default project was set via unawaited promise

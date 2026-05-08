@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { ConstantVector, DataSourcePluginMeta, FieldType } from '@grafana/data';
+import { DataSourcePluginMeta, FieldType } from '@grafana/data';
 import { GoogleAuthType } from '@grafana/google-sdk';
 import { random } from 'lodash';
 import { DataSource } from './datasource';
@@ -332,7 +332,7 @@ const makeDataSourceWithTemplateSrv = () => {
 }
 
 const makeFrame = (datasourceUid: string) => {
-    const values = new ConstantVector<string>("test", 1)
+    const values = ['test'];
     const link = {
         title: "Trace: ${__value.raw}",
         url: "",
