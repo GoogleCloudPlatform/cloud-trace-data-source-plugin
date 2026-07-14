@@ -116,6 +116,22 @@ You can combine multiple patterns (one per line) to match the union of all patte
     After making a `Filter` query, a table will be displayed with all of the matching traces
     (Example: `http.scheme:http http.server_name:testserver MinLatency:500ms`)
 
+### Span status and errors
+
+The trace view marks spans as failed (error icon and `statusCode`/`statusMessage` fields) based on
+the span's Cloud Trace labels:
+
+- `/error/message` or `/error/name`: the span is marked as an error, using the label value as the
+  status message
+- `/http/status_code`, `http.status_code`, or `http.response.status_code`: the span is marked as an
+  error for status codes >= 500 (>= 400 for client spans, per OpenTelemetry HTTP semantics)
+
+If the span has a `/stacktrace` label, its value is shown in the span's "Stack Traces" section.
+
+Note: the Cloud Trace v1 read API used by this plugin does not return span events (`TimeEvents`),
+so events such as OpenTelemetry exceptions attached to a span cannot be displayed. Error details
+are only available when they are present as span labels.
+
 ### Annotations
 
 The plugin supports Grafana annotations. You can use trace queries as annotation sources to overlay trace data on your dashboards.
