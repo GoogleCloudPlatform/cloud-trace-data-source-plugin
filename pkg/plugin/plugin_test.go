@@ -230,14 +230,92 @@ func TestQueryData_SingleTraceSpans(t *testing.T) {
 
 	traceFrame := resp.Responses[refID].Frames[0]
 	require.Equal(t, traceID, traceFrame.Name)
-	require.Len(t, traceFrame.Fields, 9)
+	require.Len(t, traceFrame.Fields, 13)
 	require.Equal(t, data.VisTypeTrace, string(traceFrame.Meta.PreferredVisualization))
 
-	expectedFrame := []byte(`{"schema":{"name":"123","meta":{"typeVersion":[0,0],"preferredVisualisationType":"trace"},"fields":[{"name":"traceID","type":"string","typeInfo":{"frame":"string"}},{"name":"parentSpanID","type":"string","typeInfo":{"frame":"string"}},{"name":"spanID","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceName","type":"string","typeInfo":{"frame":"string"}},{"name":"operationName","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceTags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"tags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"startTime","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"duration","type":"number","typeInfo":{"frame":"float64"}}]},"data":{"values":[["123"],["0"],["1"],[""],["spanName"],[[]],[[{"key":"key1","value":"value1"}]],[1660920349373],[1]]}}`)
+	expectedFrame := []byte(`{"schema":{"name":"123","meta":{"typeVersion":[0,0],"preferredVisualisationType":"trace"},"fields":[{"name":"traceID","type":"string","typeInfo":{"frame":"string"}},{"name":"parentSpanID","type":"string","typeInfo":{"frame":"string"}},{"name":"spanID","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceName","type":"string","typeInfo":{"frame":"string"}},{"name":"operationName","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceTags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"tags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"startTime","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"duration","type":"number","typeInfo":{"frame":"float64"}},{"name":"kind","type":"string","typeInfo":{"frame":"string"}},{"name":"statusCode","type":"number","typeInfo":{"frame":"int64"}},{"name":"statusMessage","type":"string","typeInfo":{"frame":"string"}},{"name":"stackTraces","type":"other","typeInfo":{"frame":"json.RawMessage","nullable":true}}]},"data":{"values":[["123"],["0"],["1"],[""],["spanName"],[[]],[[{"key":"key1","value":"value1"}]],[1660920349373],[1],["server"],[0],[""],[null]]}}`)
 
 	serializedFrame, err := traceFrame.MarshalJSON()
 	require.NoError(t, err)
 	require.Equal(t, string(expectedFrame), string(serializedFrame))
+
+	client.AssertExpectations(t)
+}
+
+func TestQueryData_TraceSpansWithError(t *testing.T) {
+	to := time.Now()
+	from := to.Add(-1 * time.Hour)
+	traceID := "456"
+	startTime := timestamppb.New(time.UnixMilli(1660920349373))
+	endTime := timestamppb.New(time.UnixMilli(1660920349374))
+	stackTrace := `{"stack_frame":[{"method_name":"main"}]}`
+
+	spans := []*tracepb.TraceSpan{
+		{
+			SpanId:    1,
+			Kind:      tracepb.TraceSpan_RPC_CLIENT,
+			Name:      "failedSpan",
+			StartTime: startTime,
+			EndTime:   endTime,
+			Labels: map[string]string{
+				"/error/message": "something went wrong",
+				"/stacktrace":    stackTrace,
+			},
+		},
+	}
+	trace := tracepb.Trace{
+		ProjectId: "testProject",
+		TraceId:   traceID,
+		Spans:     spans,
+	}
+
+	client := mocks.NewAPI(t)
+	client.On("GetTrace", mock.Anything, &cloudtrace.TraceQuery{
+		ProjectID: "testing",
+		TraceID:   traceID,
+	}).Return(&trace, nil)
+	client.On("Close").Return(nil)
+
+	ds := CloudTraceDatasource{
+		client: client,
+	}
+	refID := "test"
+	resp, err := ds.QueryData(context.Background(), &backend.QueryDataRequest{
+		Queries: []backend.DataQuery{
+			{
+				JSON:  []byte(`{"projectId": "testing", "queryType": "traceID", "traceId": "456"}`),
+				RefID: refID,
+				TimeRange: backend.TimeRange{
+					From: from,
+					To:   to,
+				},
+				MaxDataPoints: 20,
+			},
+		},
+	})
+	ds.Dispose()
+	require.NoError(t, err)
+	require.Len(t, resp.Responses[refID].Frames, 1)
+
+	traceFrame := resp.Responses[refID].Frames[0]
+	fieldsByName := map[string]*data.Field{}
+	for _, field := range traceFrame.Fields {
+		fieldsByName[field.Name] = field
+	}
+
+	require.Equal(t, int64(2), fieldsByName["statusCode"].At(0))
+	require.Equal(t, "something went wrong", fieldsByName["statusMessage"].At(0))
+	require.Equal(t, "client", fieldsByName["kind"].At(0))
+
+	stackTraces := fieldsByName["stackTraces"].At(0).(*json.RawMessage)
+	require.NotNil(t, stackTraces)
+	var traces []string
+	require.NoError(t, json.Unmarshal(*stackTraces, &traces))
+	require.Equal(t, []string{stackTrace}, traces)
+
+	var spanTags []map[string]any
+	require.NoError(t, json.Unmarshal(fieldsByName["tags"].At(0).(json.RawMessage), &spanTags))
+	require.Contains(t, spanTags, map[string]any{"key": "error", "value": true})
 
 	client.AssertExpectations(t)
 }

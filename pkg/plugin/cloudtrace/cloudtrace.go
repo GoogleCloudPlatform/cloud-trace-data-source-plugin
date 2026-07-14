@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -32,6 +33,21 @@ const (
 	gaeServiceVersionKey = "g.co/gae/app/version"
 	otelMethodKey        = "http.method"
 	cloudTraceMethodKey  = "/http/method"
+
+	errorMessageKey        = "/error/message"
+	errorNameKey           = "/error/name"
+	cloudTraceStatusKey    = "/http/status_code"
+	otelStatusKey          = "http.status_code"
+	otelHTTPResponseStatus = "http.response.status_code"
+	stackTraceKey          = "/stacktrace"
+	errorTagKey            = "error"
+)
+
+// Span status codes as expected by the Grafana trace schema,
+// following the OpenTelemetry convention
+const (
+	StatusCodeUnset int64 = 0
+	StatusCodeError int64 = 2
 )
 
 // Regex for individual filters within query text
@@ -90,13 +106,21 @@ func GetSpanOperationName(span *tracepb.TraceSpan) string {
 // GetTags converts Google Trace labels to Grafana service and span tags
 func GetTags(span *tracepb.TraceSpan) (serviceTags json.RawMessage, spanTags json.RawMessage, err error) {
 	spanLabels := span.GetLabels()
-	serviceTagsMapArray := []map[string]string{}
-	spanTagsMapArray := []map[string]string{}
+	serviceTagsMapArray := []map[string]any{}
+	spanTagsMapArray := []map[string]any{}
 	for key, value := range spanLabels {
 		if strings.HasPrefix(key, servicePrefix) || strings.HasPrefix(key, gaeServicePrefix) {
-			serviceTagsMapArray = append(serviceTagsMapArray, map[string]string{"key": key, "value": value})
+			serviceTagsMapArray = append(serviceTagsMapArray, map[string]any{"key": key, "value": value})
 		} else {
-			spanTagsMapArray = append(spanTagsMapArray, map[string]string{"key": key, "value": value})
+			spanTagsMapArray = append(spanTagsMapArray, map[string]any{"key": key, "value": value})
+		}
+	}
+
+	// Grafana's trace view highlights spans that carry an `error: true` tag,
+	// so mark failed spans for versions that don't key off the statusCode field
+	if code, _ := GetStatus(span); code == StatusCodeError {
+		if _, ok := spanLabels[errorTagKey]; !ok {
+			spanTagsMapArray = append(spanTagsMapArray, map[string]any{"key": errorTagKey, "value": true})
 		}
 	}
 
@@ -111,6 +135,75 @@ func GetTags(span *tracepb.TraceSpan) (serviceTags json.RawMessage, spanTags jso
 	}
 
 	return serviceTags, spanTags, nil
+}
+
+// GetStatus derives a Grafana span status code and message from the span's
+// labels. The Cloud Trace v1 read API has no structured status field, so
+// error information is only available through well-known labels: the
+// canonical `/error/*` labels, or an HTTP status code label indicating a
+// failed request.
+func GetStatus(span *tracepb.TraceSpan) (int64, string) {
+	labels := span.GetLabels()
+
+	errMsg := labels[errorMessageKey]
+	errName := labels[errorNameKey]
+	if errMsg != "" || errName != "" {
+		if errMsg == "" {
+			errMsg = errName
+		}
+		return StatusCodeError, errMsg
+	}
+
+	httpStatus := labels[cloudTraceStatusKey]
+	if httpStatus == "" {
+		httpStatus = labels[otelStatusKey]
+	}
+	if httpStatus == "" {
+		httpStatus = labels[otelHTTPResponseStatus]
+	}
+	if code, err := strconv.Atoi(httpStatus); err == nil {
+		// Per OpenTelemetry HTTP semantics, 4xx responses are errors for
+		// client spans but not for server spans
+		threshold := 500
+		if span.GetKind() == tracepb.TraceSpan_RPC_CLIENT {
+			threshold = 400
+		}
+		if code >= threshold {
+			return StatusCodeError, fmt.Sprintf("HTTP %d", code)
+		}
+	}
+
+	return StatusCodeUnset, ""
+}
+
+// GetSpanKind maps the Cloud Trace span kind to the values expected by the
+// Grafana trace schema
+func GetSpanKind(span *tracepb.TraceSpan) string {
+	switch span.GetKind() {
+	case tracepb.TraceSpan_RPC_SERVER:
+		return "server"
+	case tracepb.TraceSpan_RPC_CLIENT:
+		return "client"
+	default:
+		return ""
+	}
+}
+
+// GetStackTraces returns the span's `/stacktrace` label as the JSON string
+// array expected by the Grafana trace schema, or nil if the span has none
+func GetStackTraces(span *tracepb.TraceSpan) *json.RawMessage {
+	st := span.GetLabels()[stackTraceKey]
+	if st == "" {
+		return nil
+	}
+
+	b, err := json.Marshal([]string{st})
+	if err != nil {
+		return nil
+	}
+
+	raw := json.RawMessage(b)
+	return &raw
 }
 
 // GetListTracesFilter takes the raw query text from a user and converts it

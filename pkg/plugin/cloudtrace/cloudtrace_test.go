@@ -451,3 +451,199 @@ func TestGetListTracesFilter(t *testing.T) {
 		})
 	}
 }
+
+func TestGetStatus(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		span            *tracepb.TraceSpan
+		expectedCode    int64
+		expectedMessage string
+	}{
+		{
+			name:            "Span with no labels",
+			span:            &tracepb.TraceSpan{},
+			expectedCode:    cloudtrace.StatusCodeUnset,
+			expectedMessage: "",
+		},
+		{
+			name: "Span with error message label",
+			span: &tracepb.TraceSpan{
+				Labels: map[string]string{
+					"/error/message": "something went wrong",
+					"/error/name":    "RuntimeError",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeError,
+			expectedMessage: "something went wrong",
+		},
+		{
+			name: "Span with only error name label",
+			span: &tracepb.TraceSpan{
+				Labels: map[string]string{
+					"/error/name": "RuntimeError",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeError,
+			expectedMessage: "RuntimeError",
+		},
+		{
+			name: "Server span with HTTP 500",
+			span: &tracepb.TraceSpan{
+				Kind: tracepb.TraceSpan_RPC_SERVER,
+				Labels: map[string]string{
+					"/http/status_code": "500",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeError,
+			expectedMessage: "HTTP 500",
+		},
+		{
+			name: "Server span with HTTP 404 is not an error",
+			span: &tracepb.TraceSpan{
+				Kind: tracepb.TraceSpan_RPC_SERVER,
+				Labels: map[string]string{
+					"/http/status_code": "404",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeUnset,
+			expectedMessage: "",
+		},
+		{
+			name: "Client span with HTTP 404 is an error",
+			span: &tracepb.TraceSpan{
+				Kind: tracepb.TraceSpan_RPC_CLIENT,
+				Labels: map[string]string{
+					"/http/status_code": "404",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeError,
+			expectedMessage: "HTTP 404",
+		},
+		{
+			name: "Span with OTel status code label",
+			span: &tracepb.TraceSpan{
+				Labels: map[string]string{
+					"http.status_code": "503",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeError,
+			expectedMessage: "HTTP 503",
+		},
+		{
+			name: "Span with new OTel semconv status code label",
+			span: &tracepb.TraceSpan{
+				Labels: map[string]string{
+					"http.response.status_code": "502",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeError,
+			expectedMessage: "HTTP 502",
+		},
+		{
+			name: "Span with successful HTTP status",
+			span: &tracepb.TraceSpan{
+				Labels: map[string]string{
+					"/http/status_code": "200",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeUnset,
+			expectedMessage: "",
+		},
+		{
+			name: "Span with unparsable HTTP status",
+			span: &tracepb.TraceSpan{
+				Labels: map[string]string{
+					"/http/status_code": "abc",
+				},
+			},
+			expectedCode:    cloudtrace.StatusCodeUnset,
+			expectedMessage: "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			code, message := cloudtrace.GetStatus(tc.span)
+
+			require.Equal(t, tc.expectedCode, code)
+			require.Equal(t, tc.expectedMessage, message)
+		})
+	}
+}
+
+func TestGetSpanKind(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		span         *tracepb.TraceSpan
+		expectedKind string
+	}{
+		{
+			name:         "Unspecified span kind",
+			span:         &tracepb.TraceSpan{},
+			expectedKind: "",
+		},
+		{
+			name:         "Server span",
+			span:         &tracepb.TraceSpan{Kind: tracepb.TraceSpan_RPC_SERVER},
+			expectedKind: "server",
+		},
+		{
+			name:         "Client span",
+			span:         &tracepb.TraceSpan{Kind: tracepb.TraceSpan_RPC_CLIENT},
+			expectedKind: "client",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.expectedKind, cloudtrace.GetSpanKind(tc.span))
+		})
+	}
+}
+
+func TestGetStackTraces(t *testing.T) {
+	t.Parallel()
+
+	t.Run("Span without stack trace", func(t *testing.T) {
+		require.Nil(t, cloudtrace.GetStackTraces(&tracepb.TraceSpan{}))
+	})
+
+	t.Run("Span with stack trace", func(t *testing.T) {
+		span := &tracepb.TraceSpan{
+			Labels: map[string]string{
+				"/stacktrace": `{"stack_frame":[{"method_name":"main"}]}`,
+			},
+		}
+
+		stackTraces := cloudtrace.GetStackTraces(span)
+		require.NotNil(t, stackTraces)
+
+		var traces []string
+		require.NoError(t, json.Unmarshal(*stackTraces, &traces))
+		require.Equal(t, []string{`{"stack_frame":[{"method_name":"main"}]}`}, traces)
+	})
+}
+
+func TestGetTagsErrorSpan(t *testing.T) {
+	t.Parallel()
+
+	span := &tracepb.TraceSpan{
+		Labels: map[string]string{
+			"/error/message": "something went wrong",
+		},
+	}
+
+	_, spanTags, err := cloudtrace.GetTags(span)
+	require.NoError(t, err)
+
+	var spanTagsMap []map[string]any
+	require.NoError(t, json.Unmarshal(spanTags, &spanTagsMap))
+	require.ElementsMatch(t, []map[string]any{
+		{"key": "/error/message", "value": "something went wrong"},
+		{"key": "error", "value": true},
+	}, spanTagsMap)
+}

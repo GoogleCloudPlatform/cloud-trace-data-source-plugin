@@ -381,6 +381,10 @@ func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 	startTimeField := data.NewField("startTime", nil, []time.Time{})
 	durationField := data.NewField("duration", nil, []float64{})
 	tagsField := data.NewField("tags", nil, []json.RawMessage{})
+	kindField := data.NewField("kind", nil, []string{})
+	statusCodeField := data.NewField("statusCode", nil, []int64{})
+	statusMessageField := data.NewField("statusMessage", nil, []string{})
+	stackTracesField := data.NewField("stackTraces", nil, []*json.RawMessage{})
 
 	// Add values to each field for each span
 	for _, s := range trace.Spans {
@@ -400,6 +404,12 @@ func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 		startTimeField.Append(s.GetStartTime().AsTime())
 		duration := float64(s.GetEndTime().AsTime().UnixMicro()-s.GetStartTime().AsTime().UnixMicro()) / 1000
 		durationField.Append(duration)
+
+		statusCode, statusMessage := cloudtrace.GetStatus(s)
+		statusCodeField.Append(statusCode)
+		statusMessageField.Append(statusMessage)
+		kindField.Append(cloudtrace.GetSpanKind(s))
+		stackTracesField.Append(cloudtrace.GetStackTraces(s))
 	}
 
 	f.Fields = append(f.Fields,
@@ -412,6 +422,10 @@ func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 		tagsField,
 		startTimeField,
 		durationField,
+		kindField,
+		statusCodeField,
+		statusMessageField,
+		stackTracesField,
 	)
 
 	return f
