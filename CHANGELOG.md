@@ -1,4 +1,10 @@
 # Changelog
+## 1.3.5 (2026-07-14)
+* Expose span status in the trace view: populate `kind`, `statusCode`, and `statusMessage` data frame fields, derived from Cloud Trace span labels (`/error/message`, `/error/name`, and HTTP status code labels per OpenTelemetry HTTP semantics)
+* Mark failed spans with an `error: true` tag so they are highlighted with the error icon in the Grafana trace view
+* Show the span's `/stacktrace` label in the "Stack Traces" section via the `stackTraces` field
+* Document that the Cloud Trace v1 read API does not return span events (`TimeEvents`), so error details are only available from span labels
+
 ## 1.3.4 (2026-05-08)
 * Upgrade @grafana/google-sdk from 0.0.3 to 0.3.5 to fix ConnectionConfig mutating React props ([#44](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/issues/44))
 * Upgrade @grafana/data, @grafana/runtime, @grafana/ui to ^11.0.0

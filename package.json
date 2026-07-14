@@ -1,6 +1,6 @@
 {
   "name": "googlecloud-trace-datasource",
-  "version": "1.3.4",
+  "version": "1.3.5",
   "description": "Backend Grafana plugin that enables visualization of GCP Cloud Trace traces and spans in Grafana.",
   "scripts": {
     "postinstall": "rm -rf node_modules/flatted/golang",
