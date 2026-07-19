@@ -1,4 +1,7 @@
 # Changelog
+## Unreleased
+* Add **Trace to logs** correlation: configure a logs data source (e.g. Google Cloud Logging), span time shifts, tags, and trace/span ID filters — or a custom query — in the data source settings, and spans in the trace view get a "Logs for this span" link (requires Grafana >= 11.2)
+
 ## 1.3.5 (2026-07-14)
 * Expose span status in the trace view: populate `kind`, `statusCode`, and `statusMessage` data frame fields, derived from Cloud Trace span labels (`/error/message`, `/error/name`, and HTTP status code labels per OpenTelemetry HTTP semantics)
 * Mark failed spans with an `error: true` tag so they are highlighted with the error icon in the Grafana trace view

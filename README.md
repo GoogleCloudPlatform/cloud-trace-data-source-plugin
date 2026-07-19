@@ -93,6 +93,33 @@ Each line is treated as a [regular expression](https://developer.mozilla.org/en-
 
 You can combine multiple patterns (one per line) to match the union of all patterns. If a pattern contains invalid regex syntax, it is treated as a literal string match.
 
+### Trace to logs
+
+You can navigate from a span in the trace view to logs relevant to that span, the same way as in trace data sources like Tempo. Requires Grafana 11.2 or later and a logs data source such as [Google Cloud Logging](https://grafana.com/grafana/plugins/googlecloud-logging-datasource/).
+
+In the data source settings, under **Trace to logs**:
+
+- **Data source**: the logs data source the span links to.
+- **Span start/end time shift**: widen the logs search window relative to the span, e.g. `-1h` and `1h`. Defaults to the span's own time range.
+- **Tags**: span tags to include in the logs query; the optional value renames the tag in the query.
+- **Filter by trace ID / span ID**: restrict the logs query to the span's trace/span ID.
+- **Use custom query**: write your own Cloud Logging query with the variables `${__span.traceId}`, `${__span.spanId}`, `${__span.tags.X}`, and `$__tags`, e.g. `trace="projects/my-project/traces/${__span.traceId}"`.
+
+With this configured, spans in Explore and dashboard trace panels show a **Logs for this span** button.
+
+Provisioning example:
+
+```yaml
+jsonData:
+  tracesToLogsV2:
+    datasourceUid: my-cloud-logging-datasource-uid
+    spanStartTimeShift: "-5m"
+    spanEndTimeShift: "5m"
+    filterByTraceID: true
+```
+
+For the reverse direction (from a log entry to its trace), configure **Logs to traces** in the Google Cloud Logging data source settings.
+
 ## Usage
 
 ### Grafana Explore

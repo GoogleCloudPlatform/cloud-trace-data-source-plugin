@@ -18,6 +18,7 @@ import { DataSourcePluginOptionsEditorProps, SelectableValue } from '@grafana/da
 import { ConnectionConfig, GoogleAuthType } from '@grafana/google-sdk';
 import { Field, Input, Label, SecretInput, Select, TextArea } from '@grafana/ui';
 import React, { PureComponent } from 'react';
+import { TraceToLogsSettings } from './TraceToLogsSettings';
 import { authTypes, CloudTraceOptions, DataSourceSecureJsonData } from './types';
 
 export type Props = DataSourcePluginOptionsEditorProps<CloudTraceOptions, DataSourceSecureJsonData>;
@@ -157,6 +158,7 @@ export class ConfigEditor extends PureComponent<Props> {
           </>
         ) : null}
         {defaultProject(this.props)}
+        <TraceToLogsSettings options={this.props.options} onOptionsChange={this.props.onOptionsChange} />
       </>
     );
   }

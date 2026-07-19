@@ -33,6 +33,34 @@ export const authTypes: Array<SelectableValue<string>> = [
 ];
 
 /**
+ * A span tag to include in the trace-to-logs query. `value` optionally
+ * renames the tag key in the generated logs query.
+ */
+export interface TraceToLogsTag {
+  key: string;
+  value?: string;
+}
+
+/**
+ * Trace-to-logs settings, stored in jsonData under `tracesToLogsV2`.
+ *
+ * The shape must match Grafana core's TraceToLogsOptionsV2: Grafana reads it
+ * straight from this data source's jsonData to build "Logs for this span"
+ * links in the trace view (it has native support for building Cloud Logging
+ * queries from these options).
+ */
+export interface TraceToLogsOptionsV2 {
+  datasourceUid?: string;
+  tags?: TraceToLogsTag[];
+  spanStartTimeShift?: string;
+  spanEndTimeShift?: string;
+  filterByTraceID?: boolean;
+  filterBySpanID?: boolean;
+  customQuery: boolean;
+  query?: string;
+}
+
+/**
  * DataSourceOptionsExt adds any extra data to DataSourceOptions
  */
 export interface DataSourceOptionsExt extends DataSourceOptions {
@@ -42,6 +70,7 @@ export interface DataSourceOptionsExt extends DataSourceOptions {
   oauthPassThru?: boolean;
   universeDomain?: string;
   projectListFilter?: string;
+  tracesToLogsV2?: TraceToLogsOptionsV2;
 }
 
 /**
