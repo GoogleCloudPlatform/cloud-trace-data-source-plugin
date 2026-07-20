@@ -78,8 +78,8 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
               // rarely exist on Cloud Trace spans, unlike Tempo's. Explicit
               // user choices (including false/'') are preserved on re-pick.
               filterByTraceID: settings.filterByTraceID ?? true,
-              spanStartTimeShift: settings.spanStartTimeShift ?? '-5m',
-              spanEndTimeShift: settings.spanEndTimeShift ?? '5m',
+              spanStartTimeShift: settings.spanStartTimeShift ?? '-1h',
+              spanEndTimeShift: settings.spanEndTimeShift ?? '1h',
             })
           }
           onClear={() => update({ datasourceUid: undefined })}

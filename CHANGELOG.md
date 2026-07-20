@@ -1,7 +1,7 @@
 # Changelog
-## Unreleased
+## 1.4.0 (2026-07-20)
 * Add **Trace to logs** correlation: configure a logs data source (e.g. Google Cloud Logging), span time shifts, tags, and trace/span ID filters — or a custom query — in the data source settings, and spans in the trace view get a "Logs for this span" link (requires Grafana >= 11.2)
-* Picking the Trace-to-logs data source seeds default settings (filter by trace ID on, span time shifts `-5m`/`5m`) so a fresh configuration generates a useful logs query instead of an empty one
+* Picking the Trace-to-logs data source seeds default settings (filter by trace ID on, span time shifts `-1h`/`1h`) so a fresh configuration generates a useful logs query instead of an empty one
 
 ## 1.3.5 (2026-07-14)
 * Expose span status in the trace view: populate `kind`, `statusCode`, and `statusMessage` data frame fields, derived from Cloud Trace span labels (`/error/message`, `/error/name`, and HTTP status code labels per OpenTelemetry HTTP semantics)

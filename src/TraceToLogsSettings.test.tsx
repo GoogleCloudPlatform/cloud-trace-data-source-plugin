@@ -52,8 +52,8 @@ describe('TraceToLogsSettings', () => {
     expect(lastSettings(props)).toEqual({
       datasourceUid: 'logs-uid',
       filterByTraceID: true,
-      spanStartTimeShift: '-5m',
-      spanEndTimeShift: '5m',
+      spanStartTimeShift: '-1h',
+      spanEndTimeShift: '1h',
     });
   });
 
