@@ -45,11 +45,33 @@ const lastJsonData = (props: Props): { tracesToLogs?: unknown; tracesToLogsV2: T
 const lastSettings = (props: Props): TraceToLogsOptionsV2 => lastJsonData(props).tracesToLogsV2;
 
 describe('TraceToLogsSettings', () => {
-  it('writes datasourceUid when a data source is picked', () => {
+  it('seeds trace ID filter and time shifts when a data source is first picked', () => {
     const props = makeProps();
     render(<TraceToLogsSettings {...props} />);
     fireEvent.click(screen.getByText('datasource-picker'));
-    expect(lastSettings(props)).toEqual({ datasourceUid: 'logs-uid' });
+    expect(lastSettings(props)).toEqual({
+      datasourceUid: 'logs-uid',
+      filterByTraceID: true,
+      spanStartTimeShift: '-5m',
+      spanEndTimeShift: '5m',
+    });
+  });
+
+  it('preserves explicit user choices when re-picking a data source', () => {
+    const props = makeProps({
+      datasourceUid: 'old-uid',
+      filterByTraceID: false,
+      spanStartTimeShift: '',
+      spanEndTimeShift: '1h',
+    });
+    render(<TraceToLogsSettings {...props} />);
+    fireEvent.click(screen.getByText('datasource-picker'));
+    expect(lastSettings(props)).toEqual({
+      datasourceUid: 'logs-uid',
+      filterByTraceID: false,
+      spanStartTimeShift: '',
+      spanEndTimeShift: '1h',
+    });
   });
 
   it('only offers Google Cloud Logging data sources', () => {

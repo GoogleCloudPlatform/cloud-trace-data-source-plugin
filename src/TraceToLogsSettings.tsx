@@ -69,7 +69,19 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
           noDefault={true}
           width={40}
           current={settings.datasourceUid ?? null}
-          onChange={(ds) => update({ datasourceUid: ds.uid })}
+          onChange={(ds) =>
+            update({
+              datasourceUid: ds.uid,
+              // Seed defaults the first time a data source is picked. With
+              // everything unset, Grafana core generates an EMPTY logs query:
+              // its fallback default tag keys (cluster, pod, service.name, …)
+              // rarely exist on Cloud Trace spans, unlike Tempo's. Explicit
+              // user choices (including false/'') are preserved on re-pick.
+              filterByTraceID: settings.filterByTraceID ?? true,
+              spanStartTimeShift: settings.spanStartTimeShift ?? '-5m',
+              spanEndTimeShift: settings.spanEndTimeShift ?? '5m',
+            })
+          }
           onClear={() => update({ datasourceUid: undefined })}
         />
       </Field>
