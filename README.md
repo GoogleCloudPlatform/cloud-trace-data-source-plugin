@@ -99,7 +99,7 @@ You can navigate from a span in the trace view to logs relevant to that span, th
 
 In the data source settings, under **Trace to logs**:
 
-- **Data source**: the logs data source the span links to.
+- **Data source**: the [Google Cloud Logging](https://grafana.com/grafana/plugins/googlecloud-logging-datasource/) data source the span links to.
 - **Span start/end time shift**: widen the logs search window relative to the span, e.g. `-1h` and `1h`. Defaults to the span's own time range.
 - **Tags**: span tags to include in the logs query; the optional value renames the tag in the query.
 - **Filter by trace ID / span ID**: restrict the logs query to the span's trace/span ID.

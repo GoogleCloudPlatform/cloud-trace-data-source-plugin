@@ -56,7 +56,7 @@ export interface TraceToLogsOptionsV2 {
   spanEndTimeShift?: string;
   filterByTraceID?: boolean;
   filterBySpanID?: boolean;
-  customQuery: boolean;
+  customQuery?: boolean;
   query?: string;
 }
 
@@ -71,6 +71,8 @@ export interface DataSourceOptionsExt extends DataSourceOptions {
   universeDomain?: string;
   projectListFilter?: string;
   tracesToLogsV2?: TraceToLogsOptionsV2;
+  /** Legacy trace-to-logs key (V1); cleared on write so it never shadows tracesToLogsV2 */
+  tracesToLogs?: unknown;
 }
 
 /**

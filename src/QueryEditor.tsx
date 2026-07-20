@@ -65,21 +65,22 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
     return text;
   };
 
-  // Initialization effect: validates the carried-over project against the
-  // datasource's actual filtered project list. The list is the source of
-  // truth; the regex filter alone is insufficient because "no filter" passes
-  // everything, so a stale projectId from a different datasource would slip
-  // through. When the project is invalid, reseat to the default (or first
-  // available) and auto-rerun so the user sees correct traces immediately.
+  // Initialization effect: a non-empty projectId is kept as-is — it may come
+  // from a deliberate source the project list can't vouch for, such as a
+  // logs-to-traces link from the Cloud Logging plugin pointing at a project
+  // these credentials can read traces in but cannot list (or one excluded by
+  // the project filter). A genuinely wrong project fails loudly with an API
+  // error naming it, which beats silently querying a different project and
+  // reporting "trace not found". Only an empty projectId is reseated to the
+  // default (or first available) project, with an auto-rerun.
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       const latestQuery = queryRef.current;
       const needsQueryText = latestQuery.queryText == null && defaultQuery.queryText;
-      const currentProjectId = latestQuery.projectId;
 
-      if (currentProjectId && currentProjectId.startsWith('$')) {
+      if (latestQuery.projectId) {
         if (!cancelled && needsQueryText) {
           onChange({ ...latestQuery, queryText: defaultQuery.queryText });
         }
@@ -89,49 +90,20 @@ export function CloudTraceQueryEditor({ datasource, query, range, onChange, onRu
       const defaultProject = await datasource.getDefaultProject();
       if (cancelled) { return; }
 
-      let cachedList: string[] | null = null;
-      let isValid = false;
-
-      if (!currentProjectId) {
-        isValid = false;
-      } else if (datasource.filterProjects([currentProjectId]).length === 0) {
-        isValid = false;
-      } else {
-        try {
-          cachedList = await datasource.getFilteredProjects();
-          if (cancelled) { return; }
-          isValid = cachedList.includes(currentProjectId);
-        } catch {
-          // Transient API error — assume valid so we don't reset a saved
-          // project on a flaky network. The eventual query will surface
-          // any real access error.
-          isValid = true;
-        }
-      }
-
-      if (isValid) {
-        if (!cancelled && needsQueryText) {
-          onChange({ ...latestQuery, queryText: defaultQuery.queryText });
-        }
-        return;
-      }
-
-      // Pick a replacement project.
+      // Pick a project for the empty query.
       let newProjectId = '';
       if (defaultProject && datasource.filterProjects([defaultProject]).length > 0) {
         newProjectId = defaultProject;
       } else {
-        let list = cachedList;
-        if (list === null) {
-          try {
-            list = await datasource.getFilteredProjects();
-            if (cancelled) { return; }
-          } catch {
-            list = null;
+        try {
+          const list = await datasource.getFilteredProjects();
+          if (cancelled) { return; }
+          if (list.length > 0) {
+            newProjectId = list[0];
           }
-        }
-        if (list && list.length > 0) {
-          newProjectId = list[0];
+        } catch {
+          // Transient API error — leave the project empty; the picker still
+          // lets the user choose one manually.
         }
       }
 

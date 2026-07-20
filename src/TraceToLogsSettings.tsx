@@ -35,7 +35,7 @@ const isInvalidInterval = (value?: string) => !!value && !intervalRegex.test(val
  * reads it from there to render "Logs for this span" links.
  */
 export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
-  const settings: TraceToLogsOptionsV2 = options.jsonData.tracesToLogsV2 ?? { customQuery: false };
+  const settings: TraceToLogsOptionsV2 = options.jsonData.tracesToLogsV2 ?? {};
   const tags = settings.tags ?? [];
 
   const update = (patch: Partial<TraceToLogsOptionsV2>) =>
@@ -43,6 +43,8 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
       ...options,
       jsonData: {
         ...options.jsonData,
+        // Retire the legacy V1 key so it never shadows tracesToLogsV2
+        tracesToLogs: undefined,
         tracesToLogsV2: { ...settings, ...patch },
       },
     });
@@ -57,12 +59,13 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
     <FieldSet label="Trace to logs">
       <Field
         label="Data source"
-        description="Logs data source the trace is going to navigate to (e.g. Google Cloud Logging)"
+        description="Google Cloud Logging data source the trace is going to navigate to"
         htmlFor="trace-to-logs-datasource"
       >
         <DataSourcePicker
           inputId="trace-to-logs-datasource"
           logs={true}
+          filter={(ds) => ds.type === 'googlecloud-logging-datasource'}
           noDefault={true}
           width={40}
           current={settings.datasourceUid ?? null}
@@ -160,7 +163,7 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
       >
         <InlineSwitch
           id="trace-to-logs-custom-query"
-          value={settings.customQuery}
+          value={settings.customQuery ?? false}
           onChange={(e: React.FormEvent<HTMLInputElement>) => update({ customQuery: e.currentTarget.checked })}
         />
       </Field>
