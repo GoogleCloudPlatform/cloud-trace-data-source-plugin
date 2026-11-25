@@ -22,7 +22,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -365,6 +364,13 @@ func (d *CloudTraceDatasource) getTraceSpanFrame(ctx context.Context, q queryMod
 	return f, nil
 }
 
+// formatSpanID converts a Cloud Trace v1 uint64 span ID into the canonical
+// 16-character zero-padded lowercase hexadecimal string used by Cloud Trace v2,
+// OpenTelemetry, GCP Console Trace Explorer, and Cloud Logging.
+func formatSpanID(id uint64) string {
+	return fmt.Sprintf("%016x", id)
+}
+
 func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 	// Create one frame for all trace/spans
 	f := data.NewFrame(trace.GetTraceId())
@@ -397,8 +403,12 @@ func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 		serviceTagsField.Append(serviceTags)
 
 		traceIDField.Append(trace.GetTraceId())
-		spanIDField.Append(strconv.FormatUint(s.GetSpanId(), 10))
-		parentSpanIDField.Append(strconv.FormatUint(s.GetParentSpanId(), 10))
+		spanIDField.Append(formatSpanID(s.GetSpanId()))
+		if parentID := s.GetParentSpanId(); parentID != 0 {
+			parentSpanIDField.Append(formatSpanID(parentID))
+		} else {
+			parentSpanIDField.Append("")
+		}
 		operationNameField.Append(cloudtrace.GetSpanOperationName(s))
 		serviceNameField.Append(cloudtrace.GetServiceName(s))
 		startTimeField.Append(s.GetStartTime().AsTime())
