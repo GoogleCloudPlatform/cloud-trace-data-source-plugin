@@ -310,10 +310,16 @@ func (c *Client) TestConnection(ctx context.Context, projectID string) error {
 	return nil
 }
 
+const defaultListTracesLimit = 100
+
 // ListTraces retrieves all traces matching some query filter up to the given limit
 func (c *Client) ListTraces(ctx context.Context, q *TracesQuery) ([]*cloudtracepb.Trace, error) {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = defaultListTracesLimit
+	}
 	// Never exceed the maximum page size
-	pageSize := int32(math.Min(float64(q.Limit), 1000))
+	pageSize := int32(math.Min(float64(limit), 1000))
 
 	req := cloudtracepb.ListTracesRequest{
 		ProjectId: q.ProjectID,
@@ -344,12 +350,12 @@ func (c *Client) ListTraces(ctx context.Context, q *TracesQuery) ([]*cloudtracep
 		}
 		if err != nil {
 			log.DefaultLogger.Error("error getting page", "error", err)
-			break
+			return nil, err
 		}
 
 		entries = append(entries, resp)
 		i++
-		if i >= q.Limit {
+		if i >= limit {
 			break
 		}
 	}

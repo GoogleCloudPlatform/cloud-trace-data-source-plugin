@@ -382,12 +382,79 @@ func TestQueryData_SingleTraceTable(t *testing.T) {
 	require.Len(t, tableFrame.Fields, 4)
 	require.Equal(t, data.VisTypeTable, string(tableFrame.Meta.PreferredVisualization))
 
-	expectedFrame := []byte(`{"schema":{"name":"traceTable","meta":{"typeVersion":[0,0],"preferredVisualisationType":"table"},"fields":[{"name":"Trace ID","type":"string","typeInfo":{"frame":"string"}},{"name":"Trace name","type":"string","typeInfo":{"frame":"string"}},{"name":"Start time","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"Latency","type":"number","typeInfo":{"frame":"int64"},"config":{"unit":"ms"}}]},"data":{"values":[["123"],["spanName"],[1660920349373],[1]]}}`)
+	expectedFrame := []byte(`{"schema":{"name":"traceTable","meta":{"typeVersion":[0,0],"preferredVisualisationType":"table"},"fields":[{"name":"Trace ID","type":"string","typeInfo":{"frame":"string"}},{"name":"Trace name","type":"string","typeInfo":{"frame":"string"}},{"name":"Start time","type":"time","typeInfo":{"frame":"time.Time","nullable":true}},{"name":"Latency","type":"number","typeInfo":{"frame":"int64","nullable":true},"config":{"unit":"ms"}}]},"data":{"values":[["123"],["spanName"],[1660920349373],[1]]}}`)
 
 	serializedFrame, err := tableFrame.MarshalJSON()
 	require.NoError(t, err)
 	require.Equal(t, string(expectedFrame), string(serializedFrame))
 	client.AssertExpectations(t)
+}
+
+func TestCreateTracesTableFrame_RootlessAndIncompleteTraces(t *testing.T) {
+	startTime := time.UnixMilli(1660920349373).UTC()
+	endTime := time.UnixMilli(1660920349380).UTC()
+
+	traces := []*tracepb.Trace{
+		{
+			ProjectId: "testProject",
+			TraceId:   "rootless-trace",
+			Spans:     nil,
+		},
+		nil,
+		{
+			ProjectId: "testProject",
+			TraceId:   "normal-trace",
+			Spans: []*tracepb.TraceSpan{
+				{
+					SpanId:    1,
+					Name:      "GET /health",
+					StartTime: timestamppb.New(startTime),
+					EndTime:   timestamppb.New(endTime),
+				},
+			},
+		},
+		{
+			ProjectId: "testProject",
+			TraceId:   "no-endtime-trace",
+			Spans: []*tracepb.TraceSpan{
+				{
+					SpanId:    2,
+					Name:      "in-flight",
+					StartTime: timestamppb.New(startTime),
+				},
+			},
+		},
+	}
+
+	frame := createTracesTableFrame(traces)
+
+	rows, err := frame.RowLen()
+	require.NoError(t, err)
+	require.Equal(t, 3, rows)
+
+	fieldsByName := map[string]*data.Field{}
+	for _, f := range frame.Fields {
+		fieldsByName[f.Name] = f
+	}
+
+	// Row 0: rootless trace keeps aligned columns and remains clickable
+	require.Equal(t, "rootless-trace", fieldsByName["Trace ID"].At(0))
+	require.Equal(t, "", fieldsByName["Trace name"].At(0))
+	require.Nil(t, fieldsByName["Start time"].At(0))
+	require.Nil(t, fieldsByName["Latency"].At(0))
+
+	// Row 1: normal trace
+	require.Equal(t, "normal-trace", fieldsByName["Trace ID"].At(1))
+	require.Equal(t, "GET /health", fieldsByName["Trace name"].At(1))
+	require.Equal(t, &startTime, fieldsByName["Start time"].At(1))
+	expectedLatency := int64(7)
+	require.Equal(t, &expectedLatency, fieldsByName["Latency"].At(1))
+
+	// Row 2: root span missing EndTime
+	require.Equal(t, "no-endtime-trace", fieldsByName["Trace ID"].At(2))
+	require.Equal(t, "in-flight", fieldsByName["Trace name"].At(2))
+	require.Equal(t, &startTime, fieldsByName["Start time"].At(2))
+	require.Nil(t, fieldsByName["Latency"].At(2))
 }
 
 func TestSanitizeErrorMessage_PlainError(t *testing.T) {
