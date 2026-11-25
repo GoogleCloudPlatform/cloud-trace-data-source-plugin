@@ -168,8 +168,13 @@ const defaultProject = (props: Props) => {
   const { options, onOptionsChange } = props;
   return (
     <>
-      <Field label="Default Project ID" description="Required for OAuth passthrough">
+      <Field
+        label="Default Project ID"
+        description="Required for OAuth passthrough; optional override for GCE / local Application Default Credentials"
+        htmlFor="default-project"
+      >
         <Input
+          id="default-project"
           autoComplete="off"
           value={options.jsonData.defaultProject || ''}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {

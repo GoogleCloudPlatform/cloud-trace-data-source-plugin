@@ -40,9 +40,11 @@ The plugin supports multiple authentication methods. You can select the authenti
 
 If you want to access traces in multiple cloud projects, you need to ensure the service account has permission to read logs from all of them.
 
-#### GCE Default Service Account
+#### GCE Default Service Account / ADC
 
 If you host Grafana on a GCE VM, you can use the [Compute Engine service account](https://cloud.google.com/compute/docs/access/service-accounts#serviceaccount). You need to make sure the service account has sufficient permissions to access the traces in all projects.
+
+To default queries and health checks to a different GCP project than the VM's own project—or when using [Application Default Credentials (ADC)](https://cloud.google.com/docs/authentication/application-default-credentials) locally (e.g., via `gcloud auth application-default login` or `GOOGLE_APPLICATION_CREDENTIALS`)—set **Default Project ID** (`defaultProject`) in the data source configuration. When configured, it takes precedence over the GCE metadata server project.
 
 #### Access Token
 
