@@ -109,7 +109,9 @@ In the data source settings, under **Trace to logs**:
 
 With this configured, spans in Explore and dashboard trace panels show a **Logs for this span** button.
 
-> **Note:** the generated logs query is built only from the enabled filters, matching tags, and the custom query. If all of them are off/empty, the link produces an **empty query** and the logs panel returns everything (or nothing) in the span's time window. Keep at least **Filter by trace ID** enabled (the default when configuring through the UI), and when provisioning, set `filterByTraceID: true` explicitly.
+> **Note:** the generated logs query is built from the enabled filters, the matching tags, and the custom query. Keep at least **Filter by trace ID** enabled (the default when configuring through the UI), and when provisioning, set `filterByTraceID: true` explicitly. Otherwise the query can be empty and the logs panel returns everything (or nothing) in the span's time window.
+
+> **Warning:** when **Tags** is empty, Grafana falls back to its default tags (`cluster`, `hostname`, `namespace`, `pod`, `service.name` as `service_name`, and `service.namespace` as `service_namespace`) and adds every one of them that exists on the span to the query. Cloud Logging has no such fields and rejects the query (`Field not found: 'service_name'`). OpenTelemetry spans usually carry `service.name`, so either list the tags you need, or use a custom query, for example `"${__span.traceId}" AND spanId="${__span.spanId}"` (span IDs are 16-character hex, the same format as the `spanId` field of Cloud Logging entries).
 
 Provisioning example:
 

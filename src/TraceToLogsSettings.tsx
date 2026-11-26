@@ -16,7 +16,7 @@
 
 import { DataSourcePluginOptionsEditorProps } from '@grafana/data';
 import { DataSourcePicker } from '@grafana/runtime';
-import { Button, Field, FieldSet, IconButton, InlineSwitch, Input, TextArea } from '@grafana/ui';
+import { Alert, Button, Field, FieldSet, IconButton, InlineSwitch, Input, TextArea } from '@grafana/ui';
 import React from 'react';
 import { CloudTraceOptions, DataSourceSecureJsonData, TraceToLogsOptionsV2, TraceToLogsTag } from './types';
 
@@ -72,11 +72,10 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
           onChange={(ds) =>
             update({
               datasourceUid: ds.uid,
-              // Seed defaults the first time a data source is picked. With
-              // everything unset, Grafana core generates an EMPTY logs query:
-              // its fallback default tag keys (cluster, pod, service.name, …)
-              // rarely exist on Cloud Trace spans, unlike Tempo's. Explicit
-              // user choices (including false/'') are preserved on re-pick.
+              // Seed defaults the first time a data source is picked. With no
+              // filters enabled, the generated logs query would only contain
+              // Grafana's default tags (see the warning below), or nothing.
+              // Explicit user choices (including false/'') are preserved on re-pick.
               filterByTraceID: settings.filterByTraceID ?? true,
               spanStartTimeShift: settings.spanStartTimeShift ?? '-1h',
               spanEndTimeShift: settings.spanEndTimeShift ?? '1h',
@@ -153,6 +152,14 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
           </Button>
         </div>
       </Field>
+      {settings.datasourceUid && !settings.customQuery && tags.length === 0 && (
+        <Alert severity="warning" title="No tags configured">
+          Grafana then adds its default tags (cluster, hostname, namespace, pod, service_name, service_namespace) for
+          any of these attributes present on the span. Cloud Logging has no such fields and rejects the query.
+          OpenTelemetry spans usually carry <code>service.name</code>, so add the tags you need, or use a custom query
+          such as <code>{'"${__span.traceId}" AND spanId="${__span.spanId}"'}</code>.
+        </Alert>
+      )}
       <Field label="Filter by trace ID" description="Adds the trace ID to the logs query">
         <InlineSwitch
           id="trace-to-logs-filter-by-trace-id"
