@@ -18,30 +18,67 @@ import { DataSourcePluginMeta, FieldType } from '@grafana/data';
 import { GoogleAuthType } from '@grafana/google-sdk';
 import { random } from 'lodash';
 import { DataSource } from './datasource';
+import { CloudTraceOptions } from './types';
 
 
 describe('Google Cloud Trace Data Source', () => {
     describe('getDefaultProject', () => {
-        it('returns empty string if not set', () => {
+        it('returns empty string if not set', async () => {
             const ds = makeDataSource();
-            ds.getDefaultProject().then(r => expect(r).toBe(''));
+            await expect(ds.getDefaultProject()).resolves.toBe('');
         });
-        it('returns defaultProject from jsonData', () => {
+        it('returns defaultProject from jsonData', async () => {
             const projectId = `my-gcp-project-${random(100)}`;
+            const ds = makeDataSource({
+                authenticationType: GoogleAuthType.JWT,
+                defaultProject: projectId,
+            });
+            await expect(ds.getDefaultProject()).resolves.toBe(projectId);
+        });
+        it('uses explicit defaultProject under GCE/ADC auth without querying GCE metadata', async () => {
+            const ds = makeDataSource({
+                authenticationType: GoogleAuthType.GCE,
+                defaultProject: 'cross-project-traces',
+            });
+            const gceSpy = jest.spyOn(ds, 'getGCEDefaultProject').mockResolvedValue('gce-vm-project');
+            await expect(ds.getDefaultProject()).resolves.toBe('cross-project-traces');
+            expect(gceSpy).not.toHaveBeenCalled();
+        });
+        it('falls back to gceDefaultProject under GCE/ADC auth when defaultProject is unset', async () => {
+            const ds = makeDataSource({
+                authenticationType: GoogleAuthType.GCE,
+            });
+            const gceSpy = jest.spyOn(ds, 'getGCEDefaultProject').mockResolvedValue('gce-vm-project');
+            await expect(ds.getDefaultProject()).resolves.toBe('gce-vm-project');
+            await expect(ds.getDefaultProject()).resolves.toBe('gce-vm-project');
+            expect(gceSpy).toHaveBeenCalledTimes(1);
+        });
+        it('caches GCE default project without mutating frozen instanceSettings.jsonData', async () => {
+            const jsonData = Object.freeze({
+                authenticationType: GoogleAuthType.GCE,
+            }) as CloudTraceOptions;
             const ds = new DataSource({
                 id: random(100),
                 type: 'googlecloud-trace-datasource',
                 access: 'direct',
                 meta: {} as DataSourcePluginMeta,
                 uid: `${random(100)}`,
-                jsonData: {
-                    authenticationType: GoogleAuthType.JWT,
-                    defaultProject: projectId,
-                },
+                jsonData,
                 name: 'something',
                 readOnly: true,
             });
-            ds.getDefaultProject().then(r => expect(r).toBe(projectId));
+            jest.spyOn(ds, 'getGCEDefaultProject').mockResolvedValue('gce-vm-project');
+            await expect(ds.getDefaultProject()).resolves.toBe('gce-vm-project');
+            expect(jsonData.gceDefaultProject).toBeUndefined();
+        });
+        it('returns empty string when GCE metadata lookup fails under GCE/ADC auth', async () => {
+            const ds = makeDataSource({
+                authenticationType: GoogleAuthType.GCE,
+            });
+            const gceSpy = jest.spyOn(ds, 'getGCEDefaultProject').mockRejectedValue(new Error('no metadata server'));
+            await expect(ds.getDefaultProject()).resolves.toBe('');
+            await expect(ds.getDefaultProject()).resolves.toBe('');
+            expect(gceSpy).toHaveBeenCalledTimes(1);
         });
     });
 
@@ -294,7 +331,7 @@ describe('Google Cloud Trace Data Source', () => {
     });
 });
 
-const makeDataSource = (overrides?: { projectListFilter?: string }) => {
+const makeDataSource = (overrides?: Partial<CloudTraceOptions>) => {
     return new DataSource({
         id: random(100),
         type: 'googlecloud-trace-datasource',

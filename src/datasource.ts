@@ -26,6 +26,8 @@ export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> 
   authenticationType: string;
   annotations = {};
   private filterRegexes: RegExp[] | null = null;
+  private gceDefaultProject?: string;
+  private gceDefaultProjectPromise: Promise<void> | null = null;
 
   constructor(
     private instanceSettings: DataSourceInstanceSettings<CloudTraceOptions>,
@@ -77,29 +79,51 @@ export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> 
   }
 
   /**
-   * Get the Project ID from GCE or we parsed from the data source's JWT token
+   * Get the default Project ID from configuration (JWT, OAuth passthrough,
+   * or an explicit override for GCE / local Application Default Credentials),
+   * falling back to the GCE metadata server when using GCE auth without an
+   * explicit defaultProject.
    *
-   * @returns Project ID from the provided JWT token
+   * @returns Default GCP Project ID, or empty string if unset/unavailable
    */
-  async getDefaultProject() {
+  async getDefaultProject(): Promise<string> {
     const { defaultProject, authenticationType } = this.instanceSettings.jsonData;
+    if (defaultProject) {
+      return defaultProject;
+    }
     if (authenticationType === 'gce') {
       await this.ensureGCEDefaultProject();
-      return this.instanceSettings.jsonData.gceDefaultProject || "";
+      return this.gceDefaultProject || this.instanceSettings.jsonData.gceDefaultProject || '';
     }
 
-    return defaultProject || '';
+    return '';
   }
 
   async getGCEDefaultProject() {
     return this.getResource(`gceDefaultProject`);
   }
 
-  async ensureGCEDefaultProject() {
-    const { authenticationType, gceDefaultProject } = this.instanceSettings.jsonData;
-    if (authenticationType === 'gce' && !gceDefaultProject) {
-      this.instanceSettings.jsonData.gceDefaultProject = await this.getGCEDefaultProject();
+  /**
+   * Resolve and cache the GCE default project in memory without mutating
+   * `instanceSettings.jsonData`. Single-flight: concurrent calls share one
+   * resource request, and a failed lookup (e.g. local ADC with no GCE
+   * metadata server) is cached as empty rather than re-failing every query.
+   */
+  async ensureGCEDefaultProject(): Promise<void> {
+    const { authenticationType, defaultProject, gceDefaultProject } = this.instanceSettings.jsonData;
+    if (authenticationType !== 'gce' || defaultProject || gceDefaultProject || this.gceDefaultProject !== undefined) {
+      return;
     }
+    if (!this.gceDefaultProjectPromise) {
+      this.gceDefaultProjectPromise = this.getGCEDefaultProject()
+        .then((project) => {
+          this.gceDefaultProject = project || '';
+        })
+        .catch(() => {
+          this.gceDefaultProject = '';
+        });
+    }
+    await this.gceDefaultProjectPromise;
   }
 
   /**
