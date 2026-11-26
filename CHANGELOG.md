@@ -1,4 +1,15 @@
 # Changelog
+## 1.5.0 (unreleased)
+* **Span IDs are now 16-character lowercase hex** (the Cloud Trace v2, OpenTelemetry, and Cloud Logging `spanId` format) instead of decimal, and root spans no longer reference a parent span `0`. Trace-to-logs **Filter by span ID** now matches Cloud Logging entries. Update custom queries or workarounds that relied on decimal span IDs ([#24](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/issues/24))
+* Fix the trace list failing when Cloud Trace returns a trace without a root span, show `ListTraces` errors (for example a missing permission or project) instead of an empty table, and return up to 100 traces when max data points is 0 ([#35](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/issues/35))
+* GCE / Application Default Credentials: an explicit default project now also preselects that project in the query editor instead of the VM's metadata project ([#16](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/issues/16))
+* Config editor: remove the duplicate authentication, default project, and service account impersonation controls, fix the JWT key form not appearing after switching from GCE to JWT, and derive impersonation settings from props instead of local state ([#44](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/issues/44), [#113](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pull/113))
+* Health check: explain how to set a default project instead of showing the raw `projects/` API error ([#114](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pull/114))
+* Trace to logs: warn when Grafana's default tags would make Cloud Logging reject the logs query, and document a precise custom query ([#115](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pull/115))
+* Upgrade grafana-plugin-sdk-go to v0.303.0 and patch HIGH advisories in build dependencies (nanoid, zod) ([#112](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pull/112))
+* CI: build with Go 1.27.4 and Node 24, run frontend type checks and tests on PRs, and run the plugin validator's source-code checks on PRs
+* Update dependencies
+
 ## 1.4.0 (2026-07-20)
 * Add **Trace to logs** correlation: configure a logs data source (e.g. Google Cloud Logging), span time shifts, tags, and trace/span ID filters — or a custom query — in the data source settings, and spans in the trace view get a "Logs for this span" link (requires Grafana >= 11.2)
 * Picking the Trace-to-logs data source seeds default settings (filter by trace ID on, span time shifts `-1h`/`1h`) so a fresh configuration generates a useful logs query instead of an empty one
