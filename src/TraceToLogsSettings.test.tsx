@@ -179,4 +179,28 @@ describe('TraceToLogsSettings', () => {
     fireEvent.change(textarea, { target: { value: '"${__span.traceId}"' } });
     expect(lastSettings(props).query).toBe('"${__span.traceId}"');
   });
+
+  describe('default tags warning', () => {
+    const warningTitle = 'No tags configured';
+
+    it('warns when a data source is set but no tags or custom query are configured', () => {
+      render(<TraceToLogsSettings {...makeProps({ datasourceUid: 'logs-uid', filterByTraceID: true })} />);
+      expect(screen.getByText(warningTitle)).toBeInTheDocument();
+    });
+
+    it('does not warn before a data source is picked', () => {
+      render(<TraceToLogsSettings {...makeProps()} />);
+      expect(screen.queryByText(warningTitle)).toBeNull();
+    });
+
+    it('does not warn once a tag is configured', () => {
+      render(<TraceToLogsSettings {...makeProps({ datasourceUid: 'logs-uid', tags: [{ key: 'k8s.pod.name' }] })} />);
+      expect(screen.queryByText(warningTitle)).toBeNull();
+    });
+
+    it('does not warn when a custom query is used', () => {
+      render(<TraceToLogsSettings {...makeProps({ datasourceUid: 'logs-uid', customQuery: true, query: 'x' })} />);
+      expect(screen.queryByText(warningTitle)).toBeNull();
+    });
+  });
 });
