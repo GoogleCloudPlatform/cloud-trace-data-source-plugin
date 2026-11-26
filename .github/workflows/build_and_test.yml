@@ -9,8 +9,6 @@ permissions:
 jobs:
   build_and_test:
     runs-on: ubuntu-latest
-    env:
-      GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }} # Requires a Grafana policy token from Grafana.com.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -96,11 +94,19 @@ jobs:
       - name: Validate plugin
         env:
           PLUGIN_ARCHIVE: ${{ steps.metadata.outputs.archive }}
+          # plugin-validator 0.56.0 (release commit). Bump deliberately to pick up new grafana.com checks.
+          PLUGIN_VALIDATOR_REF: 198bbf2824a33b554482023abdeb7eb20cf65aa4
+          # No LLM API keys in CI; skip the LLM-based analyzers explicitly.
+          SKIP_LLM_REVIEW: 'true'
+          SKIP_LLM_CODEDIFF: 'true'
         run: |
-          git clone https://github.com/grafana/plugin-validator
-          pushd ./plugin-validator/pkg/cmd/plugincheck2
-          GOTOOLCHAIN=auto go install
-          popd
+          GOTOOLCHAIN=auto go install "github.com/grafana/plugin-validator/pkg/cmd/plugincheck2@${PLUGIN_VALIDATOR_REF}"
+          # Give plugincheck2 the committed source (no node_modules or build output) so the
+          # source-code analyzers that grafana.com runs on submission (Go SDK age, osv-scanner
+          # on go.mod and yarn.lock, ...) also run on every PR.
+          PLUGIN_SOURCE_DIR="$RUNNER_TEMP/plugin-source"
+          mkdir -p "$PLUGIN_SOURCE_DIR"
+          git archive HEAD | tar -x -C "$PLUGIN_SOURCE_DIR"
           cat <<'EOF' > plugincheck-pr.yaml
           global:
             enabled: true
@@ -113,4 +119,4 @@ jobs:
                 wrong-plugin-version:
                   enabled: false
           EOF
-          plugincheck2 -config ./plugincheck-pr.yaml "$PLUGIN_ARCHIVE"
+          plugincheck2 -config ./plugincheck-pr.yaml -sourceCodeUri "file://$PLUGIN_SOURCE_DIR" "$PLUGIN_ARCHIVE"
