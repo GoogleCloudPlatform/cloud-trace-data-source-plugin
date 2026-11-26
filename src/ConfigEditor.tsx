@@ -16,29 +16,29 @@
 
 import { DataSourcePluginOptionsEditorProps, SelectableValue } from '@grafana/data';
 import { ConnectionConfig, GoogleAuthType } from '@grafana/google-sdk';
-import { Checkbox, Field, Input, SecretInput, Select, TextArea } from '@grafana/ui';
+import { Alert, Field, Input, SecretInput, Select, TextArea } from '@grafana/ui';
 import React, { PureComponent } from 'react';
 import { TraceToLogsSettings } from './TraceToLogsSettings';
 import { authTypes, CloudTraceOptions, DataSourceSecureJsonData } from './types';
 
 export type Props = DataSourcePluginOptionsEditorProps<CloudTraceOptions, DataSourceSecureJsonData>;
 
+/**
+ * JWT and GCE authentication are configured through @grafana/google-sdk's
+ * ConnectionConfig, which already renders the project field ("Project ID" for
+ * JWT, "Default project" for GCE) and the service account impersonation
+ * controls. The plugin only renders its own project field for the other
+ * authentication types.
+ */
+const usesConnectionConfig = (authenticationType: string) =>
+  authenticationType === GoogleAuthType.JWT || authenticationType === GoogleAuthType.GCE;
+
 export class ConfigEditor extends PureComponent<Props> {
   render() {
     const { options, onOptionsChange } = this.props;
     const secureJsonData = options.secureJsonData || {};
-    const usingImpersonation = Boolean(options.jsonData.usingImpersonation);
-    const serviceAccountToImpersonate = options.jsonData.serviceAccountToImpersonate || '';
-
-    const handleImpersonationToggle = () => {
-      onOptionsChange({
-        ...options,
-        jsonData: {
-          ...options.jsonData,
-          usingImpersonation: !usingImpersonation,
-        },
-      });
-    };
+    // The backend treats a missing authentication type as JWT; show it that way too.
+    const authenticationType = options.jsonData.authenticationType || GoogleAuthType.JWT;
 
     const handleAuthTypeChange = (e: SelectableValue<string>) => {
       if (e.value === 'oauthPassthrough') {
@@ -79,44 +79,25 @@ export class ConfigEditor extends PureComponent<Props> {
         >
           <Select
             width={30}
-            value={authTypes.find((opt) => opt.value === options.jsonData.authenticationType)}
+            value={authTypes.find((opt) => opt.value === authenticationType)}
             options={authTypes}
             onChange={handleAuthTypeChange}
             disabled={false}
           />
         </Field>
-        {options.jsonData.authenticationType === GoogleAuthType.JWT ||
-          options.jsonData.authenticationType === GoogleAuthType.GCE ? (
-          <ConnectionConfig {...this.props}></ConnectionConfig>
+        {usesConnectionConfig(authenticationType) ? (
+          // ConnectionConfig keeps the JWT/GCE mode in local state. Remount it when the
+          // authentication type changes through the Select above so it never goes stale.
+          <ConnectionConfig key={authenticationType} {...this.props}></ConnectionConfig>
         ) : null}
-        {!options.jsonData.oauthPassThru ? (
-          <div>
-            <Checkbox
-              label="To impersonate an existing Google Cloud service account."
-              value={usingImpersonation}
-              onChange={handleImpersonationToggle}
-            />
-            {usingImpersonation && (
-              <Field label="Service Account" htmlFor="serviceAccount">
-                <Input
-                  id="serviceAccount"
-                  width={60}
-                  value={serviceAccountToImpersonate}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                    onOptionsChange({
-                      ...options,
-                      jsonData: {
-                        ...options.jsonData,
-                        serviceAccountToImpersonate: e.currentTarget.value,
-                      },
-                    });
-                  }}
-                />
-              </Field>
-            )}
-          </div>
+        {authenticationType === GoogleAuthType.GCE ? (
+          <Alert title="Application Default Credentials or another project" severity="info">
+            Outside GCE (for example after <code>gcloud auth application-default login</code>), or to read traces
+            from a project other than the VM&apos;s own, set <strong>Default project</strong> above. It takes
+            precedence over the GCE metadata server project for queries and health checks.
+          </Alert>
         ) : null}
-        {options.jsonData.authenticationType === 'accessToken' ? (
+        {authenticationType === 'accessToken' ? (
           <>
             <Field
               label="Access Token"
@@ -152,7 +133,8 @@ export class ConfigEditor extends PureComponent<Props> {
             </Field>
           </>
         ) : null}
-        {defaultProject(this.props)}
+        {usesConnectionConfig(authenticationType) ? null : defaultProject(this.props)}
+        {connectionOptions(this.props)}
         <TraceToLogsSettings options={this.props.options} onOptionsChange={this.props.onOptionsChange} />
       </>
     );
@@ -162,27 +144,33 @@ export class ConfigEditor extends PureComponent<Props> {
 const defaultProject = (props: Props) => {
   const { options, onOptionsChange } = props;
   return (
+    <Field
+      label="Default Project ID"
+      description="Project used by default for queries and health checks. Required for Access Token and OAuth Passthrough authentication."
+      htmlFor="default-project"
+    >
+      <Input
+        id="default-project"
+        autoComplete="off"
+        value={options.jsonData.defaultProject || ''}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+          onOptionsChange({
+            ...options,
+            jsonData: {
+              ...options.jsonData,
+              defaultProject: e.target.value,
+            },
+          });
+        }}
+      />
+    </Field>
+  );
+};
+
+const connectionOptions = (props: Props) => {
+  const { options, onOptionsChange } = props;
+  return (
     <>
-      <Field
-        label="Default Project ID"
-        description="Required for OAuth passthrough; optional override for GCE / local Application Default Credentials"
-        htmlFor="default-project"
-      >
-        <Input
-          id="default-project"
-          autoComplete="off"
-          value={options.jsonData.defaultProject || ''}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-            onOptionsChange({
-              ...options,
-              jsonData: {
-                ...options.jsonData,
-                defaultProject: e.target.value,
-              },
-            });
-          }}
-        />
-      </Field>
       <Field label="Universe Domain" description="Optional">
         <Input
           autoComplete="off"

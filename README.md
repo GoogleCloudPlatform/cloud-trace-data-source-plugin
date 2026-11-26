@@ -38,13 +38,13 @@ The plugin supports multiple authentication methods. You can select the authenti
 7. In the next step, click the service account you just created. Under the `Keys` tab and select `Add key` and `Create new key`
 8. Choose key type `JSON` and click `Create`. A JSON key file will be created and downloaded to your computer
 
-If you want to access traces in multiple cloud projects, you need to ensure the service account has permission to read logs from all of them.
+If you want to access traces in multiple cloud projects, you need to ensure the service account has permission to read traces from all of them.
 
 #### GCE Default Service Account / ADC
 
 If you host Grafana on a GCE VM, you can use the [Compute Engine service account](https://cloud.google.com/compute/docs/access/service-accounts#serviceaccount). You need to make sure the service account has sufficient permissions to access the traces in all projects.
 
-To default queries and health checks to a different GCP project than the VM's own project—or when using [Application Default Credentials (ADC)](https://cloud.google.com/docs/authentication/application-default-credentials) locally (e.g., via `gcloud auth application-default login` or `GOOGLE_APPLICATION_CREDENTIALS`)—set **Default Project ID** (`defaultProject`) in the data source configuration. When configured, it takes precedence over the GCE metadata server project.
+To default queries and health checks to a different GCP project than the VM's own project—or when using [Application Default Credentials (ADC)](https://cloud.google.com/docs/authentication/application-default-credentials) locally (e.g., via `gcloud auth application-default login` or `GOOGLE_APPLICATION_CREDENTIALS`)—set **Default project** (`defaultProject`) in the GCE authentication settings. When configured, it takes precedence over the GCE metadata server project.
 
 #### Access Token
 
@@ -61,7 +61,7 @@ You can also configure the plugin to use [service account impersonation](https:/
 You need to ensure the service account used by this plugin has the `iam.serviceAccounts.getAccessToken` permission. This permission is in roles like the [Service Account Token Creator role](https://cloud.google.com/iam/docs/understanding-roles#iam.serviceAccountTokenCreator) (roles/iam.serviceAccountTokenCreator). Also, the service account impersonated
 by this plugin needs cloud trace user and project list permissions.
 
-> **Note:** Service account impersonation is available with JWT and GCE authentication types, but not with OAuth Passthrough.
+> **Note:** Service account impersonation is configured in the **Service account impersonation** section of the JWT and GCE authentication settings. It is not available with Access Token or OAuth Passthrough.
 
 ### Universe Domain
 
