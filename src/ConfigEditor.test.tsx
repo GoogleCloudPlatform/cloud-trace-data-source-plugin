@@ -85,8 +85,10 @@ describe('ConfigEditor immutability (#44)', () => {
 
     render(<ConfigEditor options={options} onOptionsChange={onOptionsChange} />);
 
-    const checkbox = screen.getByLabelText('To impersonate an existing Google Cloud service account.');
-    fireEvent.click(checkbox);
+    // The impersonation switch is rendered by @grafana/google-sdk's ConnectionConfig.
+    const toggle = document.getElementById('usingImpersonation') as HTMLInputElement;
+    expect(toggle).not.toBeNull();
+    fireEvent.click(toggle);
 
     expect(onOptionsChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -104,7 +106,7 @@ describe('ConfigEditor immutability (#44)', () => {
 
     render(<ConfigEditor options={options} onOptionsChange={onOptionsChange} />);
 
-    const input = screen.getByLabelText('Service Account');
+    const input = screen.getByLabelText('Service account to impersonate');
     fireEvent.change(input, { target: { value: 'impersonated@project.iam.gserviceaccount.com' } });
 
     expect(onOptionsChange).toHaveBeenCalledWith(
@@ -129,7 +131,7 @@ describe('ConfigEditor immutability (#44)', () => {
       />
     );
 
-    expect(screen.getByLabelText('Service Account')).toHaveValue('old@proj.iam.gserviceaccount.com');
+    expect(screen.getByLabelText('Service account to impersonate')).toHaveValue('old@proj.iam.gserviceaccount.com');
 
     rerender(
       <ConfigEditor
@@ -141,7 +143,7 @@ describe('ConfigEditor immutability (#44)', () => {
       />
     );
 
-    expect(screen.getByLabelText('Service Account')).toHaveValue('new@proj.iam.gserviceaccount.com');
+    expect(screen.getByLabelText('Service account to impersonate')).toHaveValue('new@proj.iam.gserviceaccount.com');
 
     rerender(
       <ConfigEditor
@@ -153,7 +155,7 @@ describe('ConfigEditor immutability (#44)', () => {
       />
     );
 
-    expect(screen.queryByLabelText('Service Account')).toBeNull();
+    expect(screen.queryByLabelText('Service account to impersonate')).toBeNull();
   });
 
   it('updates tracesToLogsV2 options via onOptionsChange without mutating frozen props', () => {
@@ -175,5 +177,86 @@ describe('ConfigEditor immutability (#44)', () => {
       })
     );
     expect(options.jsonData.tracesToLogsV2?.filterByTraceID).toBe(false);
+  });
+});
+
+const projectInputs = (container: HTMLElement) => container.querySelectorAll('input#defaultProject, input#default-project');
+
+describe('ConfigEditor authentication controls', () => {
+  it.each([
+    ['jwt', { authenticationType: GoogleAuthType.JWT, usingImpersonation: true }],
+    ['gce', { authenticationType: GoogleAuthType.GCE, usingImpersonation: true }],
+  ])('renders a single set of impersonation controls (%s)', (_label, jsonData) => {
+    render(<ConfigEditor options={makeOptions(jsonData)} onOptionsChange={jest.fn()} />);
+
+    expect(screen.queryByLabelText('To impersonate an existing Google Cloud service account.')).toBeNull();
+    expect(document.querySelectorAll('#usingImpersonation')).toHaveLength(1);
+    expect(screen.getAllByLabelText('Service account to impersonate')).toHaveLength(1);
+  });
+
+  it.each([
+    ['accessToken', { authenticationType: 'accessToken' }],
+    ['oauthPassthrough', { authenticationType: 'oauthPassthrough', oauthPassThru: true }],
+  ])('does not offer impersonation where the backend ignores it (%s)', (_label, jsonData) => {
+    render(<ConfigEditor options={makeOptions(jsonData)} onOptionsChange={jest.fn()} />);
+
+    expect(document.getElementById('usingImpersonation')).toBeNull();
+    expect(screen.queryByLabelText('To impersonate an existing Google Cloud service account.')).toBeNull();
+  });
+
+  it('renders exactly one default project field for GCE', () => {
+    const { container } = render(
+      <ConfigEditor options={makeOptions({ authenticationType: GoogleAuthType.GCE, defaultProject: 'p' })} onOptionsChange={jest.fn()} />
+    );
+
+    const inputs = projectInputs(container);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toHaveValue('p');
+  });
+
+  it.each([
+    ['accessToken', { authenticationType: 'accessToken' }],
+    ['oauthPassthrough', { authenticationType: 'oauthPassthrough', oauthPassThru: true }],
+  ])('renders the plugin default project field (%s)', (_label, jsonData) => {
+    const { container } = render(
+      <ConfigEditor options={makeOptions({ ...jsonData, defaultProject: 'p' })} onOptionsChange={jest.fn()} />
+    );
+
+    const inputs = projectInputs(container);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toHaveAttribute('id', 'default-project');
+    expect(inputs[0]).toHaveValue('p');
+  });
+
+  it('shows the JWT key form after switching from GCE to JWT', () => {
+    const onOptionsChange = jest.fn();
+    const { rerender } = render(
+      <ConfigEditor options={makeOptions({ authenticationType: GoogleAuthType.GCE })} onOptionsChange={onOptionsChange} />
+    );
+    expect(screen.queryByText('JWT Key Details')).toBeNull();
+
+    rerender(
+      <ConfigEditor options={makeOptions({ authenticationType: GoogleAuthType.JWT })} onOptionsChange={onOptionsChange} />
+    );
+    expect(screen.getByText('JWT Key Details')).toBeInTheDocument();
+  });
+
+  it('hides the JWT key form after switching from JWT to GCE', () => {
+    const onOptionsChange = jest.fn();
+    const { rerender } = render(
+      <ConfigEditor options={makeOptions({ authenticationType: GoogleAuthType.JWT })} onOptionsChange={onOptionsChange} />
+    );
+    expect(screen.getByText('JWT Key Details')).toBeInTheDocument();
+
+    rerender(
+      <ConfigEditor options={makeOptions({ authenticationType: GoogleAuthType.GCE })} onOptionsChange={onOptionsChange} />
+    );
+    expect(screen.queryByText('JWT Key Details')).toBeNull();
+  });
+
+  it('treats a missing authentication type as JWT, like the backend', () => {
+    render(<ConfigEditor options={makeOptions({ authenticationType: undefined })} onOptionsChange={jest.fn()} />);
+
+    expect(screen.getByText('JWT Key Details')).toBeInTheDocument();
   });
 });
