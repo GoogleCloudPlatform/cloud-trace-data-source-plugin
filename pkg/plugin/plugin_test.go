@@ -637,3 +637,97 @@ func TestCallResource_NotFound(t *testing.T) {
 	require.Equal(t, "No such path", body["message"])
 }
 
+
+func newHealthRequest(jsonData string) *backend.CheckHealthRequest {
+	return &backend.CheckHealthRequest{
+		PluginContext: backend.PluginContext{
+			DataSourceInstanceSettings: &backend.DataSourceInstanceSettings{JSONData: []byte(jsonData)},
+		},
+	}
+}
+
+func stubGCEDefaultProject(t *testing.T, fn func(context.Context, string) (string, error)) {
+	t.Helper()
+	orig := gceDefaultProject
+	gceDefaultProject = fn
+	t.Cleanup(func() { gceDefaultProject = orig })
+}
+
+func TestCheckHealth_GCEWithoutResolvableProject(t *testing.T) {
+	// e.g. local `gcloud auth application-default login` user credentials carry no project.
+	stubGCEDefaultProject(t, func(context.Context, string) (string, error) { return "", nil })
+	client := mocks.NewAPI(t)
+	ds := CloudTraceDatasource{client: client}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"gce"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusError, res.Status)
+	require.Contains(t, res.Message, "Set Default project in the data source settings")
+	client.AssertNotCalled(t, "TestConnection", mock.Anything, mock.Anything)
+}
+
+func TestCheckHealth_GCEUsesResolvedProject(t *testing.T) {
+	stubGCEDefaultProject(t, func(context.Context, string) (string, error) { return "vm-project", nil })
+	client := mocks.NewAPI(t)
+	client.On("TestConnection", mock.Anything, "vm-project").Return(nil)
+	ds := CloudTraceDatasource{client: client}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"gce"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusOk, res.Status)
+	require.Equal(t, "Successfully queried traces from GCP project vm-project", res.Message)
+}
+
+func TestCheckHealth_GCELookupError(t *testing.T) {
+	stubGCEDefaultProject(t, func(context.Context, string) (string, error) {
+		return "", errors.New("could not find default credentials")
+	})
+	client := mocks.NewAPI(t)
+	ds := CloudTraceDatasource{client: client}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"gce"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusError, res.Status)
+	require.Equal(t, "failed to get GCE default project: could not find default credentials", res.Message)
+}
+
+func TestCheckHealth_ExplicitDefaultProjectSkipsGCELookup(t *testing.T) {
+	stubGCEDefaultProject(t, func(context.Context, string) (string, error) {
+		t.Fatal("the GCE default project lookup must not run when defaultProject is set")
+		return "", nil
+	})
+	client := mocks.NewAPI(t)
+	client.On("TestConnection", mock.Anything, "explicit-project").Return(nil)
+	ds := CloudTraceDatasource{client: client}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"gce","defaultProject":"explicit-project"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusOk, res.Status)
+}
+
+func TestCheckHealth_AccessTokenWithoutProject(t *testing.T) {
+	client := mocks.NewAPI(t)
+	ds := CloudTraceDatasource{client: client}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"accessToken"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusError, res.Status)
+	require.Equal(t, "No default project configured. Set the default project in the data source settings.", res.Message)
+	client.AssertNotCalled(t, "TestConnection", mock.Anything, mock.Anything)
+}
+
+func TestCheckHealth_OAuthWithoutProjectKeepsMessage(t *testing.T) {
+	client := mocks.NewAPI(t)
+	ds := CloudTraceDatasource{client: client}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"oauthPassthrough","oauthPassThru":true}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusError, res.Status)
+	require.Equal(t, "Please define a default project for OAuth authentication", res.Message)
+}
