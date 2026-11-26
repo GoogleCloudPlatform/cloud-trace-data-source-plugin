@@ -16,7 +16,7 @@
 
 import { DataSourcePluginOptionsEditorProps, SelectableValue } from '@grafana/data';
 import { ConnectionConfig, GoogleAuthType } from '@grafana/google-sdk';
-import { Field, Input, Label, SecretInput, Select, TextArea } from '@grafana/ui';
+import { Checkbox, Field, Input, SecretInput, Select, TextArea } from '@grafana/ui';
 import React, { PureComponent } from 'react';
 import { TraceToLogsSettings } from './TraceToLogsSettings';
 import { authTypes, CloudTraceOptions, DataSourceSecureJsonData } from './types';
@@ -24,26 +24,19 @@ import { authTypes, CloudTraceOptions, DataSourceSecureJsonData } from './types'
 export type Props = DataSourcePluginOptionsEditorProps<CloudTraceOptions, DataSourceSecureJsonData>;
 
 export class ConfigEditor extends PureComponent<Props> {
-  state = {
-    isChecked: this.props.options.jsonData.usingImpersonation || false,
-    sa: this.props.options.jsonData.serviceAccountToImpersonate || '',
-  };
-
   render() {
     const { options, onOptionsChange } = this.props;
     const secureJsonData = options.secureJsonData || {};
+    const usingImpersonation = Boolean(options.jsonData.usingImpersonation);
+    const serviceAccountToImpersonate = options.jsonData.serviceAccountToImpersonate || '';
 
-    const handleClick = () => {
-      const newImpersonationState = !this.state.isChecked;
+    const handleImpersonationToggle = () => {
       onOptionsChange({
         ...options,
         jsonData: {
           ...options.jsonData,
-          usingImpersonation: newImpersonationState,
+          usingImpersonation: !usingImpersonation,
         },
-      });
-      this.setState({
-        isChecked: newImpersonationState,
       });
     };
 
@@ -98,27 +91,29 @@ export class ConfigEditor extends PureComponent<Props> {
         ) : null}
         {!options.jsonData.oauthPassThru ? (
           <div>
-            <input type="checkbox" onChange={() => handleClick()} checked={this.state.isChecked} /> To impersonate an
-            existing Google Cloud service account.
-            <div hidden={!this.state.isChecked}>
-              <Label>Service Account:</Label>
-              <input
-                size={60}
-                id="serviceAccount"
-                value={this.state.sa}
-                onChange={(e) => {
-                  const newSa = e.target.value;
-                  this.setState({ sa: newSa });
-                  onOptionsChange({
-                    ...options,
-                    jsonData: {
-                      ...options.jsonData,
-                      serviceAccountToImpersonate: newSa,
-                    },
-                  });
-                }}
-              />
-            </div>
+            <Checkbox
+              label="To impersonate an existing Google Cloud service account."
+              value={usingImpersonation}
+              onChange={handleImpersonationToggle}
+            />
+            {usingImpersonation && (
+              <Field label="Service Account" htmlFor="serviceAccount">
+                <Input
+                  id="serviceAccount"
+                  width={60}
+                  value={serviceAccountToImpersonate}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                    onOptionsChange({
+                      ...options,
+                      jsonData: {
+                        ...options.jsonData,
+                        serviceAccountToImpersonate: e.currentTarget.value,
+                      },
+                    });
+                  }}
+                />
+              </Field>
+            )}
           </div>
         ) : null}
         {options.jsonData.authenticationType === 'accessToken' ? (
