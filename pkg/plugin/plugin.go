@@ -476,26 +476,45 @@ func createTracesTableFrame(traces []*tracepb.Trace) *data.Frame {
 	// Create one set of fields for all traces
 	tableTraceIDField := data.NewField("Trace ID", nil, []string{})
 	tableTraceNameField := data.NewField("Trace name", nil, []string{})
-	tableStartTimeField := data.NewField("Start time", nil, []time.Time{})
-	tableLatencyField := data.NewField("Latency", nil, []int64{})
+	tableStartTimeField := data.NewField("Start time", nil, []*time.Time{})
+	tableLatencyField := data.NewField("Latency", nil, []*int64{})
 	tableLatencyField.Config = &data.FieldConfig{
 		Unit: "ms",
 	}
 
 	// Add values to each field for each trace
 	for _, t := range traces {
+		if t == nil {
+			continue
+		}
 		tableTraceIDField.Append(t.TraceId)
 
 		spans := t.GetSpans()
 		if len(spans) < 1 {
-			log.DefaultLogger.Warn("failed getting trace spans", "traceID", t.TraceId)
+			// Cloud Trace v1 ListTraces(View: ROOTSPAN) can return traces with no
+			// root span (e.g. partial or externally propagated traces). Keep the
+			// trace row with empty metadata so all columns stay aligned and the
+			// user can still click through to GetTrace.
+			log.DefaultLogger.Warn("trace returned without root span", "traceID", t.TraceId)
+			tableTraceNameField.Append("")
+			tableStartTimeField.Append(nil)
+			tableLatencyField.Append(nil)
 			continue
 		}
 
 		rootSpan := spans[0]
 		tableTraceNameField.Append(cloudtrace.GetTraceName(rootSpan))
-		tableStartTimeField.Append(rootSpan.GetStartTime().AsTime())
-		latency := rootSpan.GetEndTime().AsTime().UnixMilli() - rootSpan.GetStartTime().AsTime().UnixMilli()
+		var startTime *time.Time
+		var latency *int64
+		if rootSpan.GetStartTime() != nil {
+			st := rootSpan.GetStartTime().AsTime()
+			startTime = &st
+			if rootSpan.GetEndTime() != nil {
+				lat := rootSpan.GetEndTime().AsTime().UnixMilli() - st.UnixMilli()
+				latency = &lat
+			}
+		}
+		tableStartTimeField.Append(startTime)
 		tableLatencyField.Append(latency)
 	}
 
