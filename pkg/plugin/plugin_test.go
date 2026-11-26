@@ -233,13 +233,50 @@ func TestQueryData_SingleTraceSpans(t *testing.T) {
 	require.Len(t, traceFrame.Fields, 13)
 	require.Equal(t, data.VisTypeTrace, string(traceFrame.Meta.PreferredVisualization))
 
-	expectedFrame := []byte(`{"schema":{"name":"123","meta":{"typeVersion":[0,0],"preferredVisualisationType":"trace"},"fields":[{"name":"traceID","type":"string","typeInfo":{"frame":"string"}},{"name":"parentSpanID","type":"string","typeInfo":{"frame":"string"}},{"name":"spanID","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceName","type":"string","typeInfo":{"frame":"string"}},{"name":"operationName","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceTags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"tags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"startTime","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"duration","type":"number","typeInfo":{"frame":"float64"}},{"name":"kind","type":"string","typeInfo":{"frame":"string"}},{"name":"statusCode","type":"number","typeInfo":{"frame":"int64"}},{"name":"statusMessage","type":"string","typeInfo":{"frame":"string"}},{"name":"stackTraces","type":"other","typeInfo":{"frame":"json.RawMessage","nullable":true}}]},"data":{"values":[["123"],["0"],["1"],[""],["spanName"],[[]],[[{"key":"key1","value":"value1"}]],[1660920349373],[1],["server"],[0],[""],[null]]}}`)
+	expectedFrame := []byte(`{"schema":{"name":"123","meta":{"typeVersion":[0,0],"preferredVisualisationType":"trace"},"fields":[{"name":"traceID","type":"string","typeInfo":{"frame":"string"}},{"name":"parentSpanID","type":"string","typeInfo":{"frame":"string"}},{"name":"spanID","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceName","type":"string","typeInfo":{"frame":"string"}},{"name":"operationName","type":"string","typeInfo":{"frame":"string"}},{"name":"serviceTags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"tags","type":"other","typeInfo":{"frame":"json.RawMessage"}},{"name":"startTime","type":"time","typeInfo":{"frame":"time.Time"}},{"name":"duration","type":"number","typeInfo":{"frame":"float64"}},{"name":"kind","type":"string","typeInfo":{"frame":"string"}},{"name":"statusCode","type":"number","typeInfo":{"frame":"int64"}},{"name":"statusMessage","type":"string","typeInfo":{"frame":"string"}},{"name":"stackTraces","type":"other","typeInfo":{"frame":"json.RawMessage","nullable":true}}]},"data":{"values":[["123"],[""],["0000000000000001"],[""],["spanName"],[[]],[[{"key":"key1","value":"value1"}]],[1660920349373],[1],["server"],[0],[""],[null]]}}`)
 
 	serializedFrame, err := traceFrame.MarshalJSON()
 	require.NoError(t, err)
 	require.Equal(t, string(expectedFrame), string(serializedFrame))
 
 	client.AssertExpectations(t)
+}
+
+func TestCreateTraceSpanFrame_HexSpanIDs(t *testing.T) {
+	startTime := timestamppb.New(time.UnixMilli(1660920349373))
+	endTime := timestamppb.New(time.UnixMilli(1660920349375))
+
+	trace := &tracepb.Trace{
+		ProjectId: "testProject",
+		TraceId:   "0123456789abcdef0123456789abcdef",
+		Spans: []*tracepb.TraceSpan{
+			{
+				SpanId:       0x4a,
+				ParentSpanId: 0,
+				Name:         "root",
+				StartTime:    startTime,
+				EndTime:      endTime,
+			},
+			{
+				SpanId:       0xfedcba9876543210, // > math.MaxInt64
+				ParentSpanId: 0x4a,
+				Name:         "child",
+				StartTime:    startTime,
+				EndTime:      endTime,
+			},
+		},
+	}
+
+	frame := createTraceSpanFrame(trace)
+	fieldsByName := map[string]*data.Field{}
+	for _, field := range frame.Fields {
+		fieldsByName[field.Name] = field
+	}
+
+	require.Equal(t, "000000000000004a", fieldsByName["spanID"].At(0))
+	require.Equal(t, "", fieldsByName["parentSpanID"].At(0))
+	require.Equal(t, "fedcba9876543210", fieldsByName["spanID"].At(1))
+	require.Equal(t, "000000000000004a", fieldsByName["parentSpanID"].At(1))
 }
 
 func TestQueryData_TraceSpansWithError(t *testing.T) {
