@@ -52,6 +52,10 @@ const (
 	oauthPassThruAuthentication  = "oauthPassthrough"
 )
 
+// gceDefaultProject resolves the default project from Application Default
+// Credentials (on GCE, the metadata server). It is a variable so tests can stub it.
+var gceDefaultProject = utils.GCEDefaultProject
+
 // config is the fields parsed from the front end
 type config struct {
 	AuthType                    string `json:"authenticationType"`
@@ -215,7 +219,7 @@ func (d *CloudTraceDatasource) CallResource(ctx context.Context, req *backend.Ca
 	resource := req.Path
 
 	if resource == "gceDefaultProject" {
-		proj, err := utils.GCEDefaultProject(ctx, "")
+		proj, err := gceDefaultProject(ctx, "")
 		if err != nil {
 			log.DefaultLogger.Error("problem getting GCE default project", "error", err)
 			return sender.Send(&backend.CallResourceResponse{
@@ -560,7 +564,7 @@ func (d *CloudTraceDatasource) CheckHealth(ctx context.Context, req *backend.Che
 		}, nil
 	}
 	if conf.DefaultProject == "" && conf.AuthType == gceAuthentication {
-		proj, err := utils.GCEDefaultProject(ctx, "")
+		proj, err := gceDefaultProject(ctx, "")
 		if err != nil {
 			return &backend.CheckHealthResult{
 				Status:  backend.HealthStatusError,
@@ -575,6 +579,12 @@ func (d *CloudTraceDatasource) CheckHealth(ctx context.Context, req *backend.Che
 			Message: "Please define a default project for OAuth authentication",
 		}, nil
 	}
+	if conf.DefaultProject == "" {
+		return &backend.CheckHealthResult{
+			Status:  backend.HealthStatusError,
+			Message: missingDefaultProjectMessage(conf.AuthType),
+		}, nil
+	}
 	if err := client.TestConnection(ctx, conf.DefaultProject); err != nil {
 		return &backend.CheckHealthResult{
 			Status:  backend.HealthStatusError,
@@ -586,6 +596,17 @@ func (d *CloudTraceDatasource) CheckHealth(ctx context.Context, req *backend.Che
 		Status:  status,
 		Message: fmt.Sprintf("Successfully queried traces from GCP project %s", conf.DefaultProject),
 	}, nil
+}
+
+// missingDefaultProjectMessage explains how to fix a health check that has no
+// project to query, instead of surfacing the API's "projects/" InvalidArgument.
+func missingDefaultProjectMessage(authType string) string {
+	if authType == gceAuthentication {
+		return "No default project found: neither the GCE metadata server nor Application Default Credentials " +
+			"provided one (user credentials from `gcloud auth application-default login` have no project). " +
+			"Set Default project in the data source settings."
+	}
+	return "No default project configured. Set the default project in the data source settings."
 }
 
 // htmlLikePattern matches error strings that contain HTML responses. It targets
