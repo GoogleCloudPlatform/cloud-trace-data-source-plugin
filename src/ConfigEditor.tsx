@@ -37,8 +37,10 @@ export class ConfigEditor extends PureComponent<Props> {
   render() {
     const { options, onOptionsChange } = this.props;
     const secureJsonData = options.secureJsonData || {};
-    // The backend treats a missing authentication type as JWT; show it that way too.
-    const authenticationType = options.jsonData.authenticationType || GoogleAuthType.JWT;
+    // Same rule as the backend (NewCloudTraceDatasource in pkg/plugin/plugin.go): a missing
+    // authentication type means Access Token when a token is stored, and JWT otherwise.
+    const authenticationType =
+      options.jsonData.authenticationType || (options.secureJsonFields?.accessToken ? 'accessToken' : GoogleAuthType.JWT);
 
     const handleAuthTypeChange = (e: SelectableValue<string>) => {
       if (e.value === 'oauthPassthrough') {

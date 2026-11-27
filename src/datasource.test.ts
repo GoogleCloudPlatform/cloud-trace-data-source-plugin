@@ -17,7 +17,7 @@
 import { DataSourcePluginMeta, FieldType } from '@grafana/data';
 import { GoogleAuthType } from '@grafana/google-sdk';
 import { random } from 'lodash';
-import { DataSource } from './datasource';
+import { DataSource, GCE_DEFAULT_PROJECT_RETRY_MS } from './datasource';
 import { CloudTraceOptions } from './types';
 
 
@@ -79,6 +79,30 @@ describe('Google Cloud Trace Data Source', () => {
             await expect(ds.getDefaultProject()).resolves.toBe('');
             await expect(ds.getDefaultProject()).resolves.toBe('');
             expect(gceSpy).toHaveBeenCalledTimes(1);
+        });
+        it('retries a failed GCE metadata lookup after the retry interval', async () => {
+            const ds = makeDataSource({
+                authenticationType: GoogleAuthType.GCE,
+            });
+            const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+            const gceSpy = jest
+                .spyOn(ds, 'getGCEDefaultProject')
+                .mockRejectedValueOnce(new Error('transient error'))
+                .mockResolvedValue('gce-vm-project');
+            try {
+                await expect(ds.getDefaultProject()).resolves.toBe('');
+
+                now.mockReturnValue(1_000_000 + GCE_DEFAULT_PROJECT_RETRY_MS - 1);
+                await expect(ds.getDefaultProject()).resolves.toBe('');
+                expect(gceSpy).toHaveBeenCalledTimes(1);
+
+                now.mockReturnValue(1_000_000 + GCE_DEFAULT_PROJECT_RETRY_MS);
+                await expect(ds.getDefaultProject()).resolves.toBe('gce-vm-project');
+                await expect(ds.getDefaultProject()).resolves.toBe('gce-vm-project');
+                expect(gceSpy).toHaveBeenCalledTimes(2);
+            } finally {
+                now.mockRestore();
+            }
         });
     });
 

@@ -202,5 +202,40 @@ describe('TraceToLogsSettings', () => {
       render(<TraceToLogsSettings {...makeProps({ datasourceUid: 'logs-uid', customQuery: true, query: 'x' })} />);
       expect(screen.queryByText(warningTitle)).toBeNull();
     });
+
+    // Grafana ignores an empty custom query and falls back to its default tags.
+    it.each([
+      ['missing', undefined],
+      ['empty', ''],
+      ['whitespace', '   '],
+    ])('warns when the custom query is %s', (_label, query) => {
+      render(<TraceToLogsSettings {...makeProps({ datasourceUid: 'logs-uid', customQuery: true, query })} />);
+      expect(screen.getByText(warningTitle)).toBeInTheDocument();
+    });
+
+    it('explains how to rename tags and suggests exact trace and span queries', () => {
+      render(<TraceToLogsSettings {...makeProps({ datasourceUid: 'logs-uid' })} />);
+      expect(screen.getByText('resource.labels.pod_name')).toBeInTheDocument();
+      expect(screen.getByText('trace:"${__span.traceId}" AND spanId="${__span.spanId}"')).toBeInTheDocument();
+      expect(screen.getByText('trace:"${__span.traceId}"')).toBeInTheDocument();
+    });
+  });
+
+  describe('custom query field', () => {
+    const emptyQueryError = 'Enter a Cloud Logging query, or turn off Use custom query';
+
+    it('flags an empty custom query', () => {
+      render(<TraceToLogsSettings {...makeProps({ datasourceUid: 'logs-uid', customQuery: true, query: ' ' })} />);
+      expect(screen.getByText(emptyQueryError)).toBeInTheDocument();
+    });
+
+    it('accepts a non-empty custom query', () => {
+      render(
+        <TraceToLogsSettings
+          {...makeProps({ datasourceUid: 'logs-uid', customQuery: true, query: 'trace:"${__span.traceId}"' })}
+        />
+      );
+      expect(screen.queryByText(emptyQueryError)).toBeNull();
+    });
   });
 });

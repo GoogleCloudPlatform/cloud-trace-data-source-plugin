@@ -37,7 +37,8 @@ function deepFreeze<T>(obj: T): T {
 }
 
 function makeOptions(
-  jsonData: Partial<CloudTraceOptions> = {}
+  jsonData: Partial<CloudTraceOptions> = {},
+  secureJsonFields: Record<string, boolean> = {}
 ): DataSourceSettings<CloudTraceOptions, DataSourceSecureJsonData> {
   return deepFreeze({
     id: 1,
@@ -59,7 +60,7 @@ function makeOptions(
       ...jsonData,
     } as CloudTraceOptions,
     secureJsonData: {},
-    secureJsonFields: {},
+    secureJsonFields,
     readOnly: false,
     withCredentials: false,
   });
@@ -258,5 +259,52 @@ describe('ConfigEditor authentication controls', () => {
     render(<ConfigEditor options={makeOptions({ authenticationType: undefined })} onOptionsChange={jest.fn()} />);
 
     expect(screen.getByText('JWT Key Details')).toBeInTheDocument();
+  });
+
+  it('treats a missing authentication type with a stored token as Access Token, like the backend', () => {
+    const { container } = render(
+      <ConfigEditor
+        options={makeOptions({ authenticationType: undefined, defaultProject: 'p' }, { accessToken: true })}
+        onOptionsChange={jest.fn()}
+      />
+    );
+
+    expect(screen.queryByText('JWT Key Details')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument();
+    const inputs = projectInputs(container);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toHaveAttribute('id', 'default-project');
+    expect(inputs[0]).toHaveValue('p');
+  });
+
+  it('renders no project field for JWT until a key is provided', () => {
+    const { container } = render(
+      <ConfigEditor options={makeOptions({ authenticationType: GoogleAuthType.JWT })} onOptionsChange={jest.fn()} />
+    );
+
+    expect(screen.getByText('JWT Key Details')).toBeInTheDocument();
+    expect(projectInputs(container)).toHaveLength(0);
+  });
+
+  it('renders exactly one project field for a configured JWT key', () => {
+    const { container } = render(
+      <ConfigEditor
+        options={makeOptions(
+          {
+            authenticationType: GoogleAuthType.JWT,
+            clientEmail: 'reader@p.iam.gserviceaccount.com',
+            defaultProject: 'p',
+            tokenUri: 'https://oauth2.googleapis.com/token',
+          },
+          { privateKey: true }
+        )}
+        onOptionsChange={jest.fn()}
+      />
+    );
+
+    const inputs = projectInputs(container);
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toHaveAttribute('id', 'defaultProject');
+    expect(inputs[0]).toHaveValue('p');
   });
 });

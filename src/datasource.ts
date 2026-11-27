@@ -21,6 +21,8 @@ import { lastValueFrom, Observable } from 'rxjs';
 import { CloudTraceOptions, Query } from './types';
 import { CloudTraceVariableSupport } from './variables';
 
+/** How long to wait before retrying a failed GCE default project lookup. */
+export const GCE_DEFAULT_PROJECT_RETRY_MS = 60_000;
 
 export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> {
   authenticationType: string;
@@ -28,6 +30,7 @@ export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> 
   private filterRegexes: RegExp[] | null = null;
   private gceDefaultProject?: string;
   private gceDefaultProjectPromise: Promise<void> | null = null;
+  private gceDefaultProjectFailedAt?: number;
 
   constructor(
     private instanceSettings: DataSourceInstanceSettings<CloudTraceOptions>,
@@ -106,21 +109,36 @@ export class DataSource extends DataSourceWithBackend<Query, CloudTraceOptions> 
   /**
    * Resolve and cache the GCE default project in memory without mutating
    * `instanceSettings.jsonData`. Single-flight: concurrent calls share one
-   * resource request, and a failed lookup (e.g. local ADC with no GCE
-   * metadata server) is cached as empty rather than re-failing every query.
+   * resource request, and a successful result (including an empty project, as
+   * returned for local user ADC) is kept for the lifetime of this instance.
+   * When the lookup fails (the backend answers HTTP 502, for example when it
+   * finds no credentials), it is not retried for GCE_DEFAULT_PROJECT_RETRY_MS.
+   * Variable queries call this on every refresh, so this avoids re-sending a
+   * failing request each time without keeping a transient failure until the
+   * page is reloaded.
    */
   async ensureGCEDefaultProject(): Promise<void> {
     const { authenticationType, defaultProject, gceDefaultProject } = this.instanceSettings.jsonData;
     if (authenticationType !== 'gce' || defaultProject || gceDefaultProject || this.gceDefaultProject !== undefined) {
       return;
     }
+    if (
+      this.gceDefaultProjectFailedAt !== undefined &&
+      Date.now() - this.gceDefaultProjectFailedAt < GCE_DEFAULT_PROJECT_RETRY_MS
+    ) {
+      return;
+    }
     if (!this.gceDefaultProjectPromise) {
       this.gceDefaultProjectPromise = this.getGCEDefaultProject()
         .then((project) => {
           this.gceDefaultProject = project || '';
+          this.gceDefaultProjectFailedAt = undefined;
         })
         .catch(() => {
-          this.gceDefaultProject = '';
+          this.gceDefaultProjectFailedAt = Date.now();
+        })
+        .finally(() => {
+          this.gceDefaultProjectPromise = null;
         });
     }
     await this.gceDefaultProjectPromise;
