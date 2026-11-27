@@ -22,10 +22,10 @@ import (
 	"strings"
 	"time"
 
-	trace "cloud.google.com/go/trace/apiv1"
-	"cloud.google.com/go/trace/apiv1/tracepb"
 	resourcemanager "cloud.google.com/go/resourcemanager/apiv3"
 	resourcemanagerpb "cloud.google.com/go/resourcemanager/apiv3/resourcemanagerpb"
+	trace "cloud.google.com/go/trace/apiv1"
+	"cloud.google.com/go/trace/apiv1/tracepb"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"golang.org/x/oauth2"
 	"google.golang.org/api/impersonate"
@@ -37,6 +37,10 @@ import (
 )
 
 const testConnectionTimeWindow = time.Hour * 24 * 30 // 30 days
+
+// ErrNoTraces is returned by TestConnection when the project can be queried
+// but has no traces in the last testConnectionTimeWindow.
+var ErrNoTraces = errors.New("no traces found in the last 30 days")
 
 // API implements the methods we need to query traces and list projects from GCP
 type API interface {
@@ -295,16 +299,16 @@ func (c *Client) TestConnection(ctx context.Context, projectID string) error {
 
 	entry, err := it.Next()
 	if err == iterator.Done {
-		return errors.New("no entries")
+		return ErrNoTraces
 	}
 	if err == context.DeadlineExceeded {
-		return errors.New("list entries: timeout")
+		return errors.New("list traces: timeout")
 	}
 	if err != nil {
-		return fmt.Errorf("list entries: %w", err)
+		return fmt.Errorf("list traces: %w", err)
 	}
 	if entry == nil {
-		return errors.New("no entries")
+		return ErrNoTraces
 	}
 
 	return nil

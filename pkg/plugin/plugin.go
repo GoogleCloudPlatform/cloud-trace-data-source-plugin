@@ -32,6 +32,7 @@ import (
 	"github.com/grafana/grafana-plugin-sdk-go/backend/instancemgmt"
 	"github.com/grafana/grafana-plugin-sdk-go/backend/log"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
+	"google.golang.org/grpc/status"
 )
 
 // Make sure CloudTraceDatasource implements required interfaces
@@ -44,12 +45,12 @@ var (
 )
 
 const (
-	privateKeyKey                = "privateKey"
-	gceAuthentication            = "gce"
-	jwtAuthentication            = "jwt"
-	accessTokenAuthentication    = "accessToken"
-	accessTokenKey               = "accessToken"
-	oauthPassThruAuthentication  = "oauthPassthrough"
+	privateKeyKey               = "privateKey"
+	gceAuthentication           = "gce"
+	jwtAuthentication           = "jwt"
+	accessTokenAuthentication   = "accessToken"
+	accessTokenKey              = "accessToken"
+	oauthPassThruAuthentication = "oauthPassthrough"
 )
 
 // gceDefaultProject resolves the default project from Application Default
@@ -89,6 +90,26 @@ type serviceAccountJSON struct {
 	TokenURI    string `json:"token_uri"`
 }
 
+// resolveAuthType sets conf.AuthType (and conf.OAuthPassThru) to the
+// authentication method the plugin actually uses. NewCloudTraceDatasource and
+// CheckHealth share it so the health check validates the same settings that
+// queries use:
+//   - a missing authentication type means JWT;
+//   - a stored access token overrides the configured type;
+//   - OAuth passthrough is used when either its type or its flag is set.
+func resolveAuthType(conf *config, secureJSONData map[string]string) {
+	if conf.AuthType == "" {
+		conf.AuthType = jwtAuthentication
+	}
+	if accessToken, ok := secureJSONData[accessTokenKey]; ok && accessToken != "" {
+		conf.AuthType = accessTokenAuthentication
+	}
+	if conf.AuthType == oauthPassThruAuthentication || conf.OAuthPassThru {
+		conf.AuthType = oauthPassThruAuthentication
+		conf.OAuthPassThru = true
+	}
+}
+
 // NewCloudTraceDatasource creates a new datasource instance.
 func NewCloudTraceDatasource(ctx context.Context, settings backend.DataSourceInstanceSettings) (instancemgmt.Instance, error) {
 	var conf config
@@ -96,18 +117,11 @@ func NewCloudTraceDatasource(ctx context.Context, settings backend.DataSourceIns
 		return nil, fmt.Errorf("unmarshal: %w", err)
 	}
 
-	if conf.AuthType == "" {
-		conf.AuthType = jwtAuthentication
-	}
-
-	// Check if access token is configured and switch auth type if present
-	if accessToken, ok := settings.DecryptedSecureJSONData[accessTokenKey]; ok && accessToken != "" {
-		conf.AuthType = accessTokenAuthentication
-	}
+	resolveAuthType(&conf, settings.DecryptedSecureJSONData)
 
 	// For OAuth passthrough, we don't create a persistent client.
 	// Instead, a per-request client is created using the forwarded token.
-	if conf.AuthType == oauthPassThruAuthentication || conf.OAuthPassThru {
+	if conf.AuthType == oauthPassThruAuthentication {
 		return &CloudTraceDatasource{
 			oauthPassThrough: true,
 			universeDomain:   conf.UniverseDomain,
@@ -416,8 +430,7 @@ func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 		operationNameField.Append(cloudtrace.GetSpanOperationName(s))
 		serviceNameField.Append(cloudtrace.GetServiceName(s))
 		startTimeField.Append(s.GetStartTime().AsTime())
-		duration := float64(s.GetEndTime().AsTime().UnixMicro()-s.GetStartTime().AsTime().UnixMicro()) / 1000
-		durationField.Append(duration)
+		durationField.Append(spanDurationMillis(s))
 
 		statusCode, statusMessage := cloudtrace.GetStatus(s)
 		statusCodeField.Append(statusCode)
@@ -443,6 +456,16 @@ func createTraceSpanFrame(trace *tracepb.Trace) *data.Frame {
 	)
 
 	return f
+}
+
+// spanDurationMillis returns the span duration in milliseconds, or 0 when the
+// span has no start or end time. Without the check, a missing end time would be
+// read as the Unix epoch and produce a large negative duration.
+func spanDurationMillis(s *tracepb.TraceSpan) float64 {
+	if s.GetStartTime() == nil || s.GetEndTime() == nil {
+		return 0
+	}
+	return float64(s.GetEndTime().AsTime().UnixMicro()-s.GetStartTime().AsTime().UnixMicro()) / 1000
 }
 
 func (d *CloudTraceDatasource) getTracesTableFrame(ctx context.Context, q queryModel, dQuery backend.DataQuery, client cloudtrace.API) (*data.Frame, error) {
@@ -537,65 +560,60 @@ func createTracesTableFrame(traces []*tracepb.Trace) *data.Frame {
 // datasource configuration page which allows users to verify that
 // a datasource is working as expected.
 func (d *CloudTraceDatasource) CheckHealth(ctx context.Context, req *backend.CheckHealthRequest) (*backend.CheckHealthResult, error) {
-	// log.DefaultLogger.Info("CheckHealth called")
+	settings := req.PluginContext.DataSourceInstanceSettings
+
+	var conf config
+	if err := json.Unmarshal(settings.JSONData, &conf); err != nil {
+		return healthError(fmt.Sprintf("failed to parse configuration: %s", sanitizeErrorMessage(err))), nil
+	}
+	resolveAuthType(&conf, settings.DecryptedSecureJSONData)
+
+	if conf.DefaultProject == "" && conf.AuthType == gceAuthentication {
+		proj, err := gceDefaultProject(ctx, "")
+		if err != nil {
+			return healthError(fmt.Sprintf("failed to get GCE default project: %s", sanitizeErrorMessage(err))), nil
+		}
+		conf.DefaultProject = proj
+	}
+	if conf.DefaultProject == "" && conf.OAuthPassThru {
+		return healthError("Please define a default project for OAuth authentication"), nil
+	}
+	if conf.DefaultProject == "" {
+		return healthError(missingDefaultProjectMessage(conf.AuthType)), nil
+	}
 
 	client := d.client
-
 	if d.oauthPassThrough {
 		oauthClient, err := d.CreateOauthClient(ctx, req.Headers)
 		if err != nil {
-			return &backend.CheckHealthResult{
-				Status:  backend.HealthStatusError,
-				Message: sanitizeErrorMessage(err),
-			}, nil
+			return healthError(sanitizeErrorMessage(err)), nil
 		}
 		client = oauthClient
 		defer client.Close()
 	}
 
-	var status = backend.HealthStatusOk
-	settings := req.PluginContext.DataSourceInstanceSettings
-
-	var conf config
-	if err := json.Unmarshal(settings.JSONData, &conf); err != nil {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: fmt.Sprintf("failed to parse configuration: %s", sanitizeErrorMessage(err)),
-		}, nil
-	}
-	if conf.DefaultProject == "" && conf.AuthType == gceAuthentication {
-		proj, err := gceDefaultProject(ctx, "")
-		if err != nil {
+	if err := client.TestConnection(ctx, conf.DefaultProject); err != nil {
+		if errors.Is(err, cloudtrace.ErrNoTraces) {
+			// The project is reachable and readable; it just has no recent traces.
 			return &backend.CheckHealthResult{
-				Status:  backend.HealthStatusError,
-				Message: fmt.Sprintf("failed to get GCE default project: %s", sanitizeErrorMessage(err)),
+				Status:  backend.HealthStatusOk,
+				Message: fmt.Sprintf("Successfully connected to GCP project %s, but %s", conf.DefaultProject, cloudtrace.ErrNoTraces),
 			}, nil
 		}
-		conf.DefaultProject = proj
-	}
-	if conf.DefaultProject == "" && conf.OAuthPassThru {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: "Please define a default project for OAuth authentication",
-		}, nil
-	}
-	if conf.DefaultProject == "" {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: missingDefaultProjectMessage(conf.AuthType),
-		}, nil
-	}
-	if err := client.TestConnection(ctx, conf.DefaultProject); err != nil {
-		return &backend.CheckHealthResult{
-			Status:  backend.HealthStatusError,
-			Message: fmt.Sprintf("failed to run test query: %s", sanitizeErrorMessage(err)),
-		}, nil
+		return healthError(fmt.Sprintf("failed to run test query: %s", sanitizeErrorMessage(err))), nil
 	}
 
 	return &backend.CheckHealthResult{
-		Status:  status,
+		Status:  backend.HealthStatusOk,
 		Message: fmt.Sprintf("Successfully queried traces from GCP project %s", conf.DefaultProject),
 	}, nil
+}
+
+func healthError(message string) *backend.CheckHealthResult {
+	return &backend.CheckHealthResult{
+		Status:  backend.HealthStatusError,
+		Message: message,
+	}
 }
 
 // missingDefaultProjectMessage explains how to fix a health check that has no
@@ -614,12 +632,30 @@ func missingDefaultProjectMessage(authType string) string {
 // contain angle-bracket notation (e.g. <nil> from ASN.1/x509 parsing).
 var htmlLikePattern = regexp.MustCompile(`(?i)<html[\s>]|<!doctype\s+html|text/html`)
 
-// sanitizeErrorMessage cleans up raw error messages that may contain HTML
-// (e.g. from an incorrect universe domain returning a 502 HTML page). It
-// handles both the case where the full HTML page is embedded in the error and
-// the case where only the content-type is mentioned (gRPC transport errors).
+// grpcStatusError is implemented by gRPC status errors and by the
+// apierror.APIError that the Cloud client libraries wrap them in.
+type grpcStatusError interface {
+	error
+	GRPCStatus() *status.Status
+}
+
+// sanitizeErrorMessage cleans up raw error messages before they are shown in
+// Grafana:
+//   - For gRPC errors it keeps only the status code and message. The Cloud
+//     client libraries append the status details to the error text, and those
+//     can include a DebugInfo with internal stack traces.
+//   - Messages that contain HTML (e.g. from an incorrect universe domain
+//     returning a 502 HTML page) are replaced with a readable explanation. This
+//     handles both a full HTML page embedded in the error and gRPC transport
+//     errors that only mention the content type.
 func sanitizeErrorMessage(err error) string {
 	msg := err.Error()
+	var se grpcStatusError
+	if errors.As(err, &se) {
+		if st := se.GRPCStatus(); st != nil {
+			msg = strings.Replace(msg, se.Error(), fmt.Sprintf("rpc error: code = %s desc = %s", st.Code(), st.Message()), 1)
+		}
+	}
 	if !htmlLikePattern.MatchString(msg) {
 		return msg
 	}
