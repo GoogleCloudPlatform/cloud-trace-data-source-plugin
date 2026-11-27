@@ -29,31 +29,46 @@ This project follows
 
 If you download the source, you need to build the plugin. Make sure you have all the prerequisites installed and configured:
 
-- Grafana 9.0
-- Go 1.16+
-- Mage
-- NodeJS
-- yarn
+- Grafana 11.2 or later
+- Go 1.27.3 or later
+- [Mage](https://magefile.org/)
+- Node.js 20 or later
+- Yarn 1 (classic)
 
 Under the source directory, run the following commands:
 
 ```bash
-yarn install
+# Frontend
+yarn install --frozen-lockfile
 yarn build
 
-#Run the following to update Grafana plugin SDK for Go dependency to the latest minor version:
-
-go get -u github.com/grafana/grafana-plugin-sdk-go
-go mod tidy
-
-#Build backend plugin binaries for Linux, Windows and Darwin to dist directory:
+# Backend: build the plugin binaries for Linux, Windows and Darwin into the dist directory
 mage -v
 ```
 
+To update the Grafana plugin SDK for Go to the latest minor version:
+
+```bash
+go get -u github.com/grafana/grafana-plugin-sdk-go
+go mod tidy
+```
+
 More details, please read [the doc](https://grafana.com/tutorials/build-a-data-source-backend-plugin/).
+
+### Test the plugin
+
+```bash
+# Frontend type checks and tests
+yarn typecheck
+yarn test:ci
+
+# Backend tests
+go test ./pkg/...
+```
+
 ### Grafana Configuration
 
-To have Grafana detect this plugin and make it available for use, two entries must be modified in the Grafana config file. See [Grafana's Documentation](https://grafana.com/docs/grafana/v9.0/setup-grafana/configure-grafana/) for more details, including the default location of the config file depending on platform.
+To have Grafana detect this plugin and make it available for use, two entries must be modified in the Grafana config file. See [Grafana's Documentation](https://grafana.com/docs/grafana/latest/setup-grafana/configure-grafana/) for more details, including the default location of the config file depending on platform.
 
 First, set `paths.plugins` to point to where this repo has been downloaded locally. The final build artifacts will be under the `dist` directory:
 
@@ -69,7 +84,7 @@ Next, update `plugins.allow_loading_unsigned_plugins` so that this plugin's ID i
 allow_loading_unsigned_plugins = googlecloud-trace-datasource
 ```
 
-With these settings updated, we can now restart Grafana and expect the plugin to be available. The specific command to restart Grafana will depend on what platform it's running on, with the various options documented by [Grafana](https://grafana.com/docs/grafana/v9.0/setup-grafana/restart-grafana/).
+With these settings updated, we can now restart Grafana and expect the plugin to be available. The specific command to restart Grafana will depend on what platform it's running on, with the various options documented by [Grafana](https://grafana.com/docs/grafana/latest/setup-grafana/start-restart-grafana/).
 
 ### Code Reviews
 
