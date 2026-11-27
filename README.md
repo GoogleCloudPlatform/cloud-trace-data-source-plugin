@@ -7,7 +7,7 @@ which allows users to query and visualize their Google Cloud traces and spans in
 ![image info](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/src/img/cloud_trace_explore_view.png?raw=true)
 
 ## Supported Grafana Version
-9.0.x+
+11.2.0+
 
 ## Setup
 
@@ -103,15 +103,15 @@ In the data source settings, under **Trace to logs**:
 
 - **Data source**: the [Google Cloud Logging](https://grafana.com/grafana/plugins/googlecloud-logging-datasource/) data source the span links to. Picking one seeds sensible defaults for the options below (filter by trace ID on, time shifts `-1h`/`1h`); you can change them afterwards.
 - **Span start/end time shift**: widen the logs search window relative to the span, e.g. `-1h` and `1h`. With both empty the window is the span's own duration, which is often only milliseconds.
-- **Tags**: span tags to include in the logs query; the optional value renames the tag in the query.
+- **Tags**: span tags to include in the logs query. The optional value renames the tag in the query, and it must be a Cloud Logging field: Grafana writes `<name>="<tag value>"` into the query, and Cloud Logging rejects names that are not `LogEntry` fields (`Field not found`). For example, rename `k8s.pod.name` to `resource.labels.pod_name`.
 - **Filter by trace ID / span ID**: restrict the logs query to the span's trace/span ID.
-- **Use custom query**: write your own Cloud Logging query with the variables `${__span.traceId}`, `${__span.spanId}`, `${__span.tags.X}`, and `$__tags`, e.g. `trace="projects/my-project/traces/${__span.traceId}"`.
+- **Use custom query**: write your own Cloud Logging query with the variables `${__span.traceId}`, `${__span.spanId}`, `${__span.tags.X}`, and `$__tags`, e.g. `trace:"${__span.traceId}" AND spanId="${__span.spanId}"` for the span's logs, or `trace:"${__span.traceId}"` for all logs of the trace.
 
 With this configured, spans in Explore and dashboard trace panels show a **Logs for this span** button.
 
-> **Note:** the generated logs query is built from the enabled filters, the matching tags, and the custom query. Keep at least **Filter by trace ID** enabled (the default when configuring through the UI), and when provisioning, set `filterByTraceID: true` explicitly. Otherwise the query can be empty and the logs panel returns everything (or nothing) in the span's time window.
+> **Note:** when **Use custom query** is on and the query is not empty, Grafana uses it as written and ignores the filters and tags. Otherwise the logs query is built from the enabled filters and the matching tags. Keep at least **Filter by trace ID** enabled (the default when configuring through the UI), and when provisioning, set `filterByTraceID: true` explicitly. Otherwise the query can be empty and the logs panel returns everything (or nothing) in the span's time window.
 
-> **Warning:** when **Tags** is empty, Grafana falls back to its default tags (`cluster`, `hostname`, `namespace`, `pod`, `service.name` as `service_name`, and `service.namespace` as `service_namespace`) and adds every one of them that exists on the span to the query. Cloud Logging has no such fields and rejects the query (`Field not found: 'service_name'`). OpenTelemetry spans usually carry `service.name`, so either list the tags you need, or use a custom query, for example `"${__span.traceId}" AND spanId="${__span.spanId}"` (span IDs are 16-character hex, the same format as the `spanId` field of Cloud Logging entries).
+> **Warning:** when **Tags** is empty and there is no custom query (an empty custom query is ignored), Grafana falls back to its default tags (`cluster`, `hostname`, `namespace`, `pod`, `service.name` as `service_name`, and `service.namespace` as `service_namespace`) and adds every one of them that exists on the span to the query. Cloud Logging has no such fields and rejects the query (`Field not found: 'service_name'`). OpenTelemetry spans usually carry `service.name`, so either list the tags you need, renamed to Cloud Logging fields, or use a custom query such as `trace:"${__span.traceId}" AND spanId="${__span.spanId}"` (span IDs are 16-character hex, the same format as the `spanId` field of Cloud Logging entries). Prefer `trace:"..."` to a bare `"${__span.traceId}"`: free-text search also matches unrelated entries that contain the ID, such as the audit logs of earlier Cloud Logging queries.
 
 Provisioning example:
 
@@ -122,6 +122,10 @@ jsonData:
     spanStartTimeShift: "-5m"
     spanEndTimeShift: "5m"
     filterByTraceID: true
+    customQuery: true
+    # Grafana expands $VAR and ${VAR} from the environment in provisioning files,
+    # so write $$ for each literal $ in the query.
+    query: 'trace:"$${__span.traceId}" AND spanId="$${__span.spanId}"'
 ```
 
 For the reverse direction (from a log entry to its trace), configure **Logs to traces** in the Google Cloud Logging data source settings.
@@ -174,29 +178,7 @@ The plugin currently supports variables for the GCP projects and a trace id. The
 
 ## Development
 
-### Prerequisites
-- Node.js >= 20
-- Go >= 1.25
-- [Mage](https://magefile.org/)
-
-### Building
-```bash
-# Frontend
-yarn install
-yarn build
-
-# Backend
-mage -v
-```
-
-### Testing
-```bash
-# Frontend tests
-yarn test:ci
-
-# Backend tests
-go test ./pkg/...
-```
+See [CONTRIBUTING.md](https://github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/blob/main/CONTRIBUTING.md) for how to build and test the plugin.
 
 ## Licenses
 Cloud Trace Logo (`src/img/logo.svg`) is from Google Cloud's [Official icons and sample diagrams](https://cloud.google.com/icons)

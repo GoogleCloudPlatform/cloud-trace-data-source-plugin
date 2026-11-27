@@ -18,16 +18,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/trace/apiv1/tracepb"
 	cloudtrace "github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pkg/plugin/cloudtrace"
 	"github.com/GoogleCloudPlatform/cloud-trace-data-source-plugin/pkg/plugin/mocks"
+	"github.com/googleapis/gax-go/v2/apierror"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana-plugin-sdk-go/data"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -637,7 +642,6 @@ func TestCallResource_NotFound(t *testing.T) {
 	require.Equal(t, "No such path", body["message"])
 }
 
-
 func newHealthRequest(jsonData string) *backend.CheckHealthRequest {
 	return &backend.CheckHealthRequest{
 		PluginContext: backend.PluginContext{
@@ -722,12 +726,130 @@ func TestCheckHealth_AccessTokenWithoutProject(t *testing.T) {
 }
 
 func TestCheckHealth_OAuthWithoutProjectKeepsMessage(t *testing.T) {
-	client := mocks.NewAPI(t)
-	ds := CloudTraceDatasource{client: client}
+	// The project check runs before an OAuth client is created from the request headers.
+	ds := CloudTraceDatasource{oauthPassThrough: true}
 
 	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"oauthPassthrough","oauthPassThru":true}`))
 
 	require.NoError(t, err)
 	require.Equal(t, backend.HealthStatusError, res.Status)
 	require.Equal(t, "Please define a default project for OAuth authentication", res.Message)
+}
+
+func TestCheckHealth_OAuthTypeWithoutFlag(t *testing.T) {
+	// NewCloudTraceDatasource uses OAuth passthrough when either the type or the flag is set.
+	ds := CloudTraceDatasource{oauthPassThrough: true}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"oauthPassthrough"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusError, res.Status)
+	require.Equal(t, "Please define a default project for OAuth authentication", res.Message)
+}
+
+func TestCheckHealth_StoredAccessTokenOverridesGCE(t *testing.T) {
+	stubGCEDefaultProject(t, func(context.Context, string) (string, error) {
+		t.Fatal("queries use the access token, so the health check must not look up the GCE project")
+		return "", nil
+	})
+	client := mocks.NewAPI(t)
+	ds := CloudTraceDatasource{client: client}
+	req := newHealthRequest(`{"authenticationType":"gce"}`)
+	req.PluginContext.DataSourceInstanceSettings.DecryptedSecureJSONData = map[string]string{accessTokenKey: "token"}
+
+	res, err := ds.CheckHealth(context.Background(), req)
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusError, res.Status)
+	require.Equal(t, "No default project configured. Set the default project in the data source settings.", res.Message)
+	client.AssertNotCalled(t, "TestConnection", mock.Anything, mock.Anything)
+}
+
+func TestCheckHealth_ProjectWithoutRecentTracesIsHealthy(t *testing.T) {
+	client := mocks.NewAPI(t)
+	client.On("TestConnection", mock.Anything, "quiet-project").Return(cloudtrace.ErrNoTraces)
+	ds := CloudTraceDatasource{client: client}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"accessToken","defaultProject":"quiet-project"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusOk, res.Status)
+	require.Equal(t, "Successfully connected to GCP project quiet-project, but no traces found in the last 30 days", res.Message)
+}
+
+func TestCheckHealth_TestConnectionError(t *testing.T) {
+	client := mocks.NewAPI(t)
+	client.On("TestConnection", mock.Anything, "p").Return(errors.New("list traces: permission denied"))
+	ds := CloudTraceDatasource{client: client}
+
+	res, err := ds.CheckHealth(context.Background(), newHealthRequest(`{"authenticationType":"accessToken","defaultProject":"p"}`))
+
+	require.NoError(t, err)
+	require.Equal(t, backend.HealthStatusError, res.Status)
+	require.Equal(t, "failed to run test query: list traces: permission denied", res.Message)
+}
+
+func TestResolveAuthType(t *testing.T) {
+	tests := []struct {
+		name      string
+		conf      config
+		secure    map[string]string
+		wantType  string
+		wantOAuth bool
+	}{
+		{name: "missing type means JWT", conf: config{}, wantType: jwtAuthentication},
+		{name: "explicit GCE", conf: config{AuthType: gceAuthentication}, wantType: gceAuthentication},
+		{name: "stored token overrides GCE", conf: config{AuthType: gceAuthentication}, secure: map[string]string{accessTokenKey: "t"}, wantType: accessTokenAuthentication},
+		{name: "empty token is ignored", conf: config{AuthType: gceAuthentication}, secure: map[string]string{accessTokenKey: ""}, wantType: gceAuthentication},
+		{name: "OAuth type sets the flag", conf: config{AuthType: oauthPassThruAuthentication}, wantType: oauthPassThruAuthentication, wantOAuth: true},
+		{name: "OAuth flag wins over a token", conf: config{AuthType: jwtAuthentication, OAuthPassThru: true}, secure: map[string]string{accessTokenKey: "t"}, wantType: oauthPassThruAuthentication, wantOAuth: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conf := tt.conf
+			resolveAuthType(&conf, tt.secure)
+			require.Equal(t, tt.wantType, conf.AuthType)
+			require.Equal(t, tt.wantOAuth, conf.OAuthPassThru)
+		})
+	}
+}
+
+func TestCreateTraceSpanFrame_MissingEndTime(t *testing.T) {
+	trace := &tracepb.Trace{
+		ProjectId: "testProject",
+		TraceId:   "0123456789abcdef0123456789abcdef",
+		Spans: []*tracepb.TraceSpan{
+			{SpanId: 1, Name: "open span", StartTime: timestamppb.New(time.UnixMilli(1660920349373))},
+		},
+	}
+
+	frame := createTraceSpanFrame(trace)
+
+	for _, field := range frame.Fields {
+		if field.Name == "duration" {
+			require.Equal(t, 0.0, field.At(0))
+			return
+		}
+	}
+	t.Fatal("duration field not found")
+}
+
+func TestSanitizeErrorMessage_DropsGRPCErrorDetails(t *testing.T) {
+	st, err := status.New(codes.NotFound, "projects/missing does not exist").WithDetails(&errdetails.DebugInfo{
+		Detail:       "[ORIGINAL ERROR] generic::not_found: internal detail",
+		StackEntries: []string{"internal frame"},
+	})
+	require.NoError(t, err)
+	apiErr, ok := apierror.FromError(st.Err())
+	require.True(t, ok)
+	wrapped := fmt.Errorf("list traces: %w", apiErr)
+	require.Contains(t, wrapped.Error(), "DebugInfo", "the client library error text includes the details")
+
+	require.Equal(t, "list traces: rpc error: code = NotFound desc = projects/missing does not exist", sanitizeErrorMessage(wrapped))
+}
+
+func TestSanitizeErrorMessage_PlainGRPCError(t *testing.T) {
+	err := fmt.Errorf("filter query: %w", status.Error(codes.PermissionDenied, "caller lacks cloudtrace.traces.list"))
+
+	require.Equal(t, "filter query: rpc error: code = PermissionDenied desc = caller lacks cloudtrace.traces.list", sanitizeErrorMessage(err))
 }

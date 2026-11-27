@@ -37,6 +37,9 @@ const isInvalidInterval = (value?: string) => !!value && !intervalRegex.test(val
 export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
   const settings: TraceToLogsOptionsV2 = options.jsonData.tracesToLogsV2 ?? {};
   const tags = settings.tags ?? [];
+  // Grafana only uses the custom query when it is non-empty; otherwise it builds
+  // the query from the filters and tags, falling back to its default tags.
+  const hasCustomQuery = !!settings.customQuery && !!settings.query?.trim();
 
   const update = (patch: Partial<TraceToLogsOptionsV2>) =>
     onOptionsChange({
@@ -114,7 +117,7 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
       </Field>
       <Field
         label="Tags"
-        description="Span tags to include in the logs query. The optional value renames the tag key in the query."
+        description="Span tags to include in the logs query. The optional value renames the tag key in the query and must be a Cloud Logging field, for example resource.labels.pod_name."
       >
         <div>
           {tags.map((tag, i) => (
@@ -152,12 +155,14 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
           </Button>
         </div>
       </Field>
-      {settings.datasourceUid && !settings.customQuery && tags.length === 0 && (
+      {settings.datasourceUid && !hasCustomQuery && tags.length === 0 && (
         <Alert severity="warning" title="No tags configured">
           Grafana then adds its default tags (cluster, hostname, namespace, pod, service_name, service_namespace) for
           any of these attributes present on the span. Cloud Logging has no such fields and rejects the query.
-          OpenTelemetry spans usually carry <code>service.name</code>, so add the tags you need, or use a custom query
-          such as <code>{'"${__span.traceId}" AND spanId="${__span.spanId}"'}</code>.
+          OpenTelemetry spans usually carry <code>service.name</code>, so add the tags you need and rename each one to a
+          Cloud Logging field (for example <code>k8s.pod.name</code> to <code>resource.labels.pod_name</code>), or use a
+          custom query such as <code>{'trace:"${__span.traceId}" AND spanId="${__span.spanId}"'}</code> for the
+          span&apos;s logs or <code>{'trace:"${__span.traceId}"'}</code> for the whole trace.
         </Alert>
       )}
       <Field label="Filter by trace ID" description="Adds the trace ID to the logs query">
@@ -187,11 +192,16 @@ export function TraceToLogsSettings({ options, onOptionsChange }: Props) {
         />
       </Field>
       {settings.customQuery && (
-        <Field label="Query" htmlFor="trace-to-logs-query">
+        <Field
+          label="Query"
+          htmlFor="trace-to-logs-query"
+          invalid={!hasCustomQuery}
+          error="Enter a Cloud Logging query, or turn off Use custom query"
+        >
           <TextArea
             id="trace-to-logs-query"
             rows={3}
-            placeholder={'trace="projects/my-project/traces/${__span.traceId}"'}
+            placeholder={'trace:"${__span.traceId}" AND spanId="${__span.spanId}"'}
             value={settings.query || ''}
             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => update({ query: e.target.value })}
           />
