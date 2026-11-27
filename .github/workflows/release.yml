@@ -13,8 +13,6 @@ jobs:
       contents: write
       attestations: write
       actions: write
-    env:
-      GRAFANA_ACCESS_POLICY_TOKEN: ${{ secrets.GRAFANA_ACCESS_POLICY_TOKEN }} # Requires a Grafana policy token from Grafana.com.
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 

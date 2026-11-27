@@ -2,6 +2,13 @@ name: Build and Test
 
 on:
   pull_request:
+  push:
+    branches: [main]
+  # Weekly, so new grafana.com validator findings (Go SDK age, OSV advisories)
+  # show up without waiting for the next pull request.
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -24,7 +31,8 @@ jobs:
           go-version: '1.27.4'
 
       - name: Install dependencies
-        run: yarn install --immutable --prefer-offline
+        # Yarn 1 ignores Yarn 2+'s --immutable; --frozen-lockfile fails if yarn.lock is out of date.
+        run: yarn install --frozen-lockfile --prefer-offline
 
       - name: Build and test frontend
         run: |
@@ -73,12 +81,6 @@ jobs:
 
           echo "github-tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
 
-      - name: Read changelog
-        id: changelog
-        run: |
-          awk '/^## / {s++} s == 1 {print}' CHANGELOG.md > release_notes.md
-          echo "path=release_notes.md" >> $GITHUB_OUTPUT
-
       - name: Package plugin
         id: package-plugin
         env:
@@ -107,16 +109,29 @@ jobs:
           PLUGIN_SOURCE_DIR="$RUNNER_TEMP/plugin-source"
           mkdir -p "$PLUGIN_SOURCE_DIR"
           git archive HEAD | tar -x -C "$PLUGIN_SOURCE_DIR"
-          cat <<'EOF' > plugincheck-pr.yaml
+          # Same severities as grafana.com's submission config (config/publishing.yaml in
+          # plugin-validator), except the version check: it fails whenever package.json is
+          # not ahead of the version already published on grafana.com.
+          cat <<'EOF' > plugincheck-ci.yaml
           global:
             enabled: true
-            severity: warning
+            severity: error
             jsonOutput: false
             reportAll: false
           analyzers:
+            htmlreadme:
+              severity: warning
+            legacyplatform:
+              severity: warning
+            jargon:
+              severity: warning
+            restrictivedep:
+              severity: warning
+            screenshots:
+              severity: warning
             version:
               rules:
                 wrong-plugin-version:
                   enabled: false
           EOF
-          plugincheck2 -config ./plugincheck-pr.yaml -sourceCodeUri "file://$PLUGIN_SOURCE_DIR" "$PLUGIN_ARCHIVE"
+          plugincheck2 -config ./plugincheck-ci.yaml -sourceCodeUri "file://$PLUGIN_SOURCE_DIR" "$PLUGIN_ARCHIVE"
